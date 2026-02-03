@@ -1,0 +1,38 @@
+{
+  "name": "sigma",
+  "version": "0.1.0",
+  "description": "Sigma Protocol - Advanced DeFi Derivatives Suite (Variance Swaps, Funding Rate Derivatives, Exotic Options)",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "oracle"
+  ],
+  "scripts": {
+    "build": "anchor build",
+    "test": "anchor test",
+    "test:volswap": "anchor test -- --features volswap",
+    "test:funding": "anchor test -- --features funding-swap",
+    "test:exotic": "anchor test -- --features exotic-vault",
+    "deploy:devnet": "anchor deploy --provider.cluster devnet",
+    "deploy:mainnet": "anchor deploy --provider.cluster mainnet",
+    "oracle:dev": "cd oracle && npm run dev",
+    "dashboard:dev": "cd apps/dashboard && npm run dev",
+    "sdk:build": "cd packages/sdk && npm run build"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.30.0",
+    "@solana/web3.js": "^1.95.0",
+    "@solana/spl-token": "^0.4.8"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "chai": "^4.3.7",
+    "mocha": "^10.2.0",
+    "ts-mocha": "^10.0.0",
+    "typescript": "^5.3.0",
+    "turbo": "^2.0.0"
+  }
+}

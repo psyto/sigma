@@ -1,0 +1,21 @@
+[package]
+name = "volswap"
+version = "0.1.0"
+description = "Variance Swaps & Volatility Index Protocol"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "volswap"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.30.0"
+anchor-spl = "0.30.0"
+shared-oracle = { path = "../shared-oracle", features = ["cpi"] }

@@ -1,0 +1,106 @@
+use anchor_lang::prelude::*;
+use anchor_spl::token_interface::{transfer_checked, TransferChecked};
+use crate::{BuyBarrierOption, ExoticVaultError, state::{OptionType, OptionStatus}};
+
+pub fn handler(
+    ctx: Context<BuyBarrierOption>,
+    strike_price: u64,
+    barrier_price: u64,
+    notional: u64,
+    duration_days: u16,
+    option_type: OptionType,
+) -> Result<()> {
+    let vault = &mut ctx.accounts.vault;
+    let option = &mut ctx.accounts.option;
+    let clock = Clock::get()?;
+
+    // Validations
+    require!(vault.is_active, ExoticVaultError::VaultInactive);
+    require!(notional >= vault.min_notional, ExoticVaultError::NotionalTooLow);
+    require!(notional <= vault.max_notional, ExoticVaultError::NotionalTooHigh);
+    require!(duration_days >= vault.min_duration_days, ExoticVaultError::DurationTooShort);
+    require!(duration_days <= vault.max_duration_days, ExoticVaultError::DurationTooLong);
+    require!(strike_price > 0, ExoticVaultError::InvalidStrikePrice);
+    require!(barrier_price > 0, ExoticVaultError::InvalidBarrierPrice);
+
+    // Validate barrier vs strike relationship
+    let is_up_barrier = matches!(
+        option_type,
+        OptionType::UpAndOutCall | OptionType::UpAndOutPut |
+        OptionType::UpAndInCall | OptionType::UpAndInPut
+    );
+
+    if is_up_barrier {
+        require!(barrier_price > strike_price, ExoticVaultError::InvalidBarrierPrice);
+    } else {
+        require!(barrier_price < strike_price, ExoticVaultError::InvalidBarrierPrice);
+    }
+
+    // Calculate premium (barrier options are cheaper than vanilla)
+    // Knock-out cheaper than vanilla, knock-in even cheaper
+    let duration_factor = ((duration_days as u64) * 1000 / 365).max(100);
+    let base_premium_bps: u64 = 300; // 3% base
+
+    let is_knockout = matches!(
+        option_type,
+        OptionType::UpAndOutCall | OptionType::DownAndOutCall |
+        OptionType::UpAndOutPut | OptionType::DownAndOutPut
+    );
+
+    let barrier_discount_bps: u64 = if is_knockout { 50 } else { 40 }; // 50% or 60% discount
+
+    let premium = (notional * base_premium_bps * duration_factor * barrier_discount_bps) / (10000 * 1000 * 100);
+    let fee = (notional * vault.fee_rate_bps as u64) / 10000;
+    let total_cost = premium + fee;
+
+    // Transfer premium + fee
+    transfer_checked(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            TransferChecked {
+                from: ctx.accounts.user_collateral.to_account_info(),
+                mint: ctx.accounts.collateral_mint.to_account_info(),
+                to: ctx.accounts.vault_collateral.to_account_info(),
+                authority: ctx.accounts.user.to_account_info(),
+            },
+        ),
+        total_cost,
+        ctx.accounts.collateral_mint.decimals,
+    )?;
+
+    // Update vault stats
+    vault.total_premiums_collected = vault.total_premiums_collected.checked_add(premium).ok_or(ExoticVaultError::Overflow)?;
+    vault.total_fees_collected = vault.total_fees_collected.checked_add(fee).ok_or(ExoticVaultError::Overflow)?;
+    vault.total_volume = vault.total_volume.checked_add(notional as u128).ok_or(ExoticVaultError::Overflow)?;
+
+    let option_index = vault.total_options;
+    vault.total_options = vault.total_options.checked_add(1).ok_or(ExoticVaultError::Overflow)?;
+
+    // Initialize option
+    let expiry_time = clock.unix_timestamp + (duration_days as i64 * 86400);
+
+    option.owner = ctx.accounts.user.key();
+    option.vault = vault.key();
+    option.option_index = option_index;
+    option.option_type = option_type;
+    option.strike_price = strike_price;
+    option.barrier_price = Some(barrier_price);
+    option.notional = notional;
+    option.premium_paid = premium;
+    option.duration_days = duration_days;
+    option.start_time = clock.unix_timestamp;
+    option.expiry_time = expiry_time;
+    option.barrier_breached = false;
+    option.barrier_breach_time = None;
+    option.barrier_breach_price = None;
+    option.settlement_price = None;
+    option.payout_amount = 0;
+    option.status = OptionStatus::Active;
+    option.settled_at = None;
+    option.bump = ctx.bumps.option;
+
+    msg!("Barrier option bought: {:?}, strike {}, barrier {}, notional {}",
+        option_type, strike_price, barrier_price, notional);
+
+    Ok(())
+}

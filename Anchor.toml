@@ -1,0 +1,25 @@
+[features]
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+volswap = "SIGvo1swap111111111111111111111111111111111"
+funding_swap = "SIGfund1swap11111111111111111111111111111"
+exotic_vault = "SIGexot1vault1111111111111111111111111111"
+shared_oracle = "SIGorac1e11111111111111111111111111111111"
+
+[programs.devnet]
+volswap = "SIGvo1swap111111111111111111111111111111111"
+funding_swap = "SIGfund1swap11111111111111111111111111111"
+exotic_vault = "SIGexot1vault1111111111111111111111111111"
+shared_oracle = "SIGorac1e11111111111111111111111111111111"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
