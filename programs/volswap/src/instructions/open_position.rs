@@ -1,6 +1,36 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{transfer_checked, TransferChecked};
+use anchor_lang::solana_program::program::invoke;
 use crate::{OpenPosition, VolswapError, state::PositionStatus};
+
+/// SPL Token transfer instruction
+fn spl_token_transfer<'info>(
+    token_program: &AccountInfo<'info>,
+    source: &AccountInfo<'info>,
+    destination: &AccountInfo<'info>,
+    authority: &AccountInfo<'info>,
+    amount: u64,
+) -> Result<()> {
+    let ix = spl_token::instruction::transfer(
+        token_program.key,
+        source.key,
+        destination.key,
+        authority.key,
+        &[],
+        amount,
+    )?;
+
+    invoke(
+        &ix,
+        &[
+            source.clone(),
+            destination.clone(),
+            authority.clone(),
+            token_program.clone(),
+        ],
+    )?;
+
+    Ok(())
+}
 
 pub fn handler(
     ctx: Context<OpenPosition>,
@@ -14,6 +44,7 @@ pub fn handler(
 
     // Validations
     require!(pool.is_active, VolswapError::PoolInactive);
+    require!(!pool.is_paused, VolswapError::PoolPaused);
     require!(!pool.is_epoch_settled, VolswapError::EpochNotActive);
     require!(clock.unix_timestamp < pool.epoch_end_time, VolswapError::EpochNotActive);
     require!(notional >= pool.min_notional, VolswapError::NotionalTooLow);
@@ -28,36 +59,28 @@ pub fn handler(
         require!(premium >= premium_limit, VolswapError::PremiumBelowMinimum);
     }
 
-    // Calculate required collateral
-    // Longs: premium + margin (20% of notional)
-    // Shorts: margin (30% of notional) - they receive premium
-    let margin_bps: u64 = if is_long { 2000 } else { 3000 };
-    let margin = (notional * margin_bps) / 10000;
+    // Calculate required collateral using pool method
+    let margin = pool.calculate_margin(notional, is_long);
 
     let collateral_required = if is_long {
-        premium + margin
+        premium.checked_add(margin).ok_or(VolswapError::Overflow)?
     } else {
         margin.saturating_sub(premium)
     };
 
     // Transfer collateral from user to vault
-    transfer_checked(
-        CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            TransferChecked {
-                from: ctx.accounts.user_collateral.to_account_info(),
-                mint: ctx.accounts.collateral_mint.to_account_info(),
-                to: ctx.accounts.pool_vault.to_account_info(),
-                authority: ctx.accounts.user.to_account_info(),
-            },
-        ),
+    spl_token_transfer(
+        &ctx.accounts.token_program,
+        &ctx.accounts.user_collateral,
+        &ctx.accounts.pool_vault,
+        &ctx.accounts.user.to_account_info(),
         collateral_required,
-        ctx.accounts.collateral_mint.decimals,
     )?;
 
     // Calculate and collect fee
     let fee = (notional * pool.fee_rate_bps as u64) / 10000;
     pool.total_fees_collected = pool.total_fees_collected.checked_add(fee).ok_or(VolswapError::Overflow)?;
+    pool.accumulated_lp_fees = pool.accumulated_lp_fees.checked_add(fee).ok_or(VolswapError::Overflow)?;
 
     // Update pool state
     if is_long {
@@ -66,6 +89,7 @@ pub fn handler(
         pool.total_short_notional = pool.total_short_notional.checked_add(notional).ok_or(VolswapError::Overflow)?;
     }
     pool.total_volume = pool.total_volume.checked_add(notional as u128).ok_or(VolswapError::Overflow)?;
+    pool.active_positions = pool.active_positions.checked_add(1).ok_or(VolswapError::Overflow)?;
 
     // Initialize position
     position.owner = ctx.accounts.user.key();

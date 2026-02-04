@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
-use crate::{ClaimPayout, VolswapError, state::PositionStatus};
+use crate::{ClosePositionEarly, VolswapError, state::PositionStatus};
 
 /// SPL Token transfer with PDA signer
 fn spl_token_transfer_signed<'info>(
@@ -34,19 +34,27 @@ fn spl_token_transfer_signed<'info>(
     Ok(())
 }
 
-pub fn handler(ctx: Context<ClaimPayout>) -> Result<()> {
-    let pool = &ctx.accounts.pool;
+pub fn handler(ctx: Context<ClosePositionEarly>) -> Result<()> {
+    let pool = &mut ctx.accounts.pool;
     let position = &ctx.accounts.position;
     let clock = Clock::get()?;
 
-    // Position must be settled
-    require!(position.status == PositionStatus::Settled, VolswapError::NotSettled);
+    // Cannot close after epoch ends
+    require!(clock.unix_timestamp < pool.epoch_end_time, VolswapError::EpochNotActive);
 
-    // Get the pre-calculated payout from position
-    let payout = position.payout_amount;
+    // Calculate refund with early exit penalty
+    let refund = pool.calculate_early_exit_refund(position, clock.unix_timestamp);
 
-    // Transfer payout to user
-    if payout > 0 {
+    // Update pool state
+    if position.is_long {
+        pool.total_long_notional = pool.total_long_notional.saturating_sub(position.notional);
+    } else {
+        pool.total_short_notional = pool.total_short_notional.saturating_sub(position.notional);
+    }
+    pool.active_positions = pool.active_positions.saturating_sub(1);
+
+    // Transfer refund to user
+    if refund > 0 {
         let pool_key = pool.key();
         let seeds = &[
             b"pool_vault".as_ref(),
@@ -60,13 +68,19 @@ pub fn handler(ctx: Context<ClaimPayout>) -> Result<()> {
             &ctx.accounts.pool_vault,
             &ctx.accounts.user_collateral,
             &ctx.accounts.pool_vault,
-            payout,
+            refund,
             signer_seeds,
         )?;
     }
 
-    msg!("Payout claimed: {} (P&L: {})", payout, position.settlement_pnl);
-    msg!("Position closed at: {}", clock.unix_timestamp);
+    // Remaining collateral stays in pool (penalty goes to LPs)
+    let penalty = position.collateral_deposited.saturating_sub(refund);
+    if penalty > 0 {
+        pool.accumulated_lp_fees = pool.accumulated_lp_fees.checked_add(penalty).ok_or(VolswapError::Overflow)?;
+    }
+
+    msg!("Position closed early");
+    msg!("Collateral: {}, Refund: {}, Penalty: {}", position.collateral_deposited, refund, penalty);
 
     // Position account will be closed via the close = user constraint
     Ok(())

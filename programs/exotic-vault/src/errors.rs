@@ -56,6 +56,30 @@ pub enum ExoticVaultError {
     #[msg("Arithmetic overflow")]
     Overflow,
 
+    #[msg("Division by zero")]
+    DivisionByZero,
+
     #[msg("Invalid option type for this operation")]
     InvalidOptionType,
+
+    #[msg("Invalid oracle")]
+    InvalidOracle,
+
+    #[msg("Stale price data")]
+    StalePriceData,
+
+    #[msg("Deposit amount too low")]
+    DepositTooLow,
+
+    #[msg("Insufficient LP shares")]
+    InsufficientShares,
+
+    #[msg("Withdrawal exceeds available liquidity")]
+    WithdrawalExceedsAvailable,
+
+    #[msg("Insufficient vault liquidity")]
+    InsufficientLiquidity,
+
+    #[msg("Insufficient samples for TWAP calculation")]
+    InsufficientSamples,
 }

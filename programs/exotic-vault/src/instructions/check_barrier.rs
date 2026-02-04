@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
 use crate::{CheckBarrier, ExoticVaultError, state::OptionStatus};
+use shared_oracle::state::PriceFeed;
 
-pub fn handler(ctx: Context<CheckBarrier>, current_price: u64) -> Result<()> {
+pub fn handler(ctx: Context<CheckBarrier>) -> Result<()> {
     let option = &mut ctx.accounts.option;
     let clock = Clock::get()?;
 
@@ -9,6 +10,18 @@ pub fn handler(ctx: Context<CheckBarrier>, current_price: u64) -> Result<()> {
     require!(option.status == OptionStatus::Active, ExoticVaultError::AlreadySettled);
     require!(option.is_barrier(), ExoticVaultError::InvalidOptionType);
     require!(!option.barrier_breached, ExoticVaultError::BarrierAlreadyBreached);
+
+    // Read price from oracle
+    let price_feed_data = ctx.accounts.price_feed.try_borrow_data()?;
+    let price_feed = PriceFeed::try_deserialize(&mut &price_feed_data[8..])?;
+
+    // Check price staleness
+    require!(
+        !price_feed.is_stale(clock.unix_timestamp),
+        ExoticVaultError::StalePriceData
+    );
+
+    let current_price = price_feed.last_price;
 
     // Check if barrier is triggered
     if option.should_trigger_barrier(current_price) {

@@ -1,6 +1,36 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{transfer_checked, TransferChecked};
+use anchor_lang::solana_program::program::invoke;
 use crate::{OpenSwap, FundingSwapError, state::SwapStatus};
+
+/// SPL Token transfer instruction
+fn spl_token_transfer<'info>(
+    token_program: &AccountInfo<'info>,
+    source: &AccountInfo<'info>,
+    destination: &AccountInfo<'info>,
+    authority: &AccountInfo<'info>,
+    amount: u64,
+) -> Result<()> {
+    let ix = spl_token::instruction::transfer(
+        token_program.key,
+        source.key,
+        destination.key,
+        authority.key,
+        &[],
+        amount,
+    )?;
+
+    invoke(
+        &ix,
+        &[
+            source.clone(),
+            destination.clone(),
+            authority.clone(),
+            token_program.clone(),
+        ],
+    )?;
+
+    Ok(())
+}
 
 pub fn handler(
     ctx: Context<OpenSwap>,
@@ -15,6 +45,7 @@ pub fn handler(
 
     // Validations
     require!(pool.is_active, FundingSwapError::PoolInactive);
+    require!(!pool.is_paused, FundingSwapError::PoolPaused);
     require!(notional >= pool.min_notional, FundingSwapError::NotionalTooLow);
     require!(notional <= pool.max_notional, FundingSwapError::NotionalTooHigh);
     require!(duration_periods >= 1, FundingSwapError::DurationTooShort);
@@ -30,31 +61,23 @@ pub fn handler(
         require!(fixed_rate >= rate_limit, FundingSwapError::RateBelowMinimum);
     }
 
-    // Calculate required collateral
-    // Margin = Notional × max_rate_move × duration / 10000
-    // Assume max rate move of 50 bps per period
-    let max_adverse_move: u64 = 50 * duration_periods as u64;
-    let margin = (notional * max_adverse_move) / 10000;
-    let fee = (notional * pool.fee_rate_bps as u64) / 10000;
-    let collateral_required = margin + fee;
+    // Calculate required collateral using pool methods
+    let margin = pool.calculate_margin(notional, duration_periods);
+    let fee = pool.calculate_fee(notional);
+    let collateral_required = margin.checked_add(fee).ok_or(FundingSwapError::Overflow)?;
 
-    // Transfer collateral
-    transfer_checked(
-        CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            TransferChecked {
-                from: ctx.accounts.user_collateral.to_account_info(),
-                mint: ctx.accounts.collateral_mint.to_account_info(),
-                to: ctx.accounts.pool_vault.to_account_info(),
-                authority: ctx.accounts.user.to_account_info(),
-            },
-        ),
+    // Transfer collateral from user to vault
+    spl_token_transfer(
+        &ctx.accounts.token_program,
+        &ctx.accounts.user_collateral,
+        &ctx.accounts.pool_vault,
+        &ctx.accounts.user.to_account_info(),
         collateral_required,
-        ctx.accounts.collateral_mint.decimals,
     )?;
 
     // Update pool state
     pool.total_fees_collected = pool.total_fees_collected.checked_add(fee).ok_or(FundingSwapError::Overflow)?;
+    pool.accumulated_lp_fees = pool.accumulated_lp_fees.checked_add(fee).ok_or(FundingSwapError::Overflow)?;
     pool.total_volume = pool.total_volume.checked_add(notional as u128).ok_or(FundingSwapError::Overflow)?;
 
     if is_receiver {
@@ -65,6 +88,7 @@ pub fn handler(
 
     let swap_index = pool.total_swaps;
     pool.total_swaps = pool.total_swaps.checked_add(1).ok_or(FundingSwapError::Overflow)?;
+    pool.active_swaps = pool.active_swaps.checked_add(1).ok_or(FundingSwapError::Overflow)?;
 
     // Initialize swap
     swap.owner = ctx.accounts.user.key();

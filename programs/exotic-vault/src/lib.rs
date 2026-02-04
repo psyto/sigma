@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, TransferChecked, transfer_checked};
 
-declare_id!("SIGexot1vault1111111111111111111111111111");
+declare_id!("36pKgauHLWvZDgEs8czCPvyLy8i5mZTD1QXuuCpvcqDV");
 
 pub mod state;
 pub mod errors;
@@ -12,6 +11,11 @@ use errors::ExoticVaultError;
 
 /// ExoticVault - Asian & Barrier Options Protocol
 /// Trade exotic options with path-dependent payoffs
+///
+/// Key concepts:
+/// - Asian options: Payoff based on TWAP (time-weighted average price)
+/// - Barrier options: Options that activate (knock-in) or deactivate (knock-out) at price levels
+/// - TWAP settlement reduces manipulation risk for Asian options
 #[program]
 pub mod exotic_vault {
     use super::*;
@@ -83,13 +87,13 @@ pub mod exotic_vault {
     }
 
     /// Check barrier (called by oracle or keeper)
-    pub fn check_barrier(ctx: Context<CheckBarrier>, current_price: u64) -> Result<()> {
-        instructions::check_barrier::handler(ctx, current_price)
+    pub fn check_barrier(ctx: Context<CheckBarrier>) -> Result<()> {
+        instructions::check_barrier::handler(ctx)
     }
 
     /// Record price sample for Asian options
-    pub fn record_price_sample(ctx: Context<RecordPriceSample>, price: u64) -> Result<()> {
-        instructions::record_price_sample::handler(ctx, price)
+    pub fn record_price_sample(ctx: Context<RecordPriceSample>) -> Result<()> {
+        instructions::record_price_sample::handler(ctx)
     }
 
     /// Settle option at expiry
@@ -109,6 +113,16 @@ pub mod exotic_vault {
         is_active: Option<bool>,
     ) -> Result<()> {
         instructions::update_vault::handler(ctx, new_fee_rate_bps, is_active)
+    }
+
+    /// Deposit liquidity to vault (LP)
+    pub fn deposit_liquidity(ctx: Context<DepositLiquidity>, amount: u64) -> Result<()> {
+        instructions::liquidity::deposit(ctx, amount)
+    }
+
+    /// Withdraw liquidity from vault (LP)
+    pub fn withdraw_liquidity(ctx: Context<WithdrawLiquidity>, shares: u64) -> Result<()> {
+        instructions::liquidity::withdraw(ctx, shares)
     }
 }
 
@@ -137,14 +151,14 @@ pub struct InitializeVault<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// Collateral mint (USDC)
-    pub collateral_mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: Collateral mint (USDC)
+    pub collateral_mint: AccountInfo<'info>,
 
-    /// Underlying asset mint (e.g., SOL)
-    pub underlying_mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: Underlying asset mint (e.g., SOL)
+    pub underlying_mint: AccountInfo<'info>,
 
     /// Price feed from shared oracle
-    /// CHECK: Validated via seeds
+    /// CHECK: Validated via seeds in shared-oracle
     pub price_feed: AccountInfo<'info>,
 
     #[account(
@@ -156,18 +170,18 @@ pub struct InitializeVault<'info> {
     )]
     pub vault: Account<'info, ExoticVault>,
 
+    /// CHECK: Vault collateral (will be initialized as token account)
     #[account(
-        init,
-        payer = authority,
-        token::mint = collateral_mint,
-        token::authority = vault,
+        mut,
         seeds = [b"vault_collateral", vault.key().as_ref()],
         bump
     )]
-    pub vault_collateral: InterfaceAccount<'info, TokenAccount>,
+    pub vault_collateral: AccountInfo<'info>,
+
+    /// CHECK: SPL Token program
+    pub token_program: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -175,7 +189,12 @@ pub struct BuyOption<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"exotic_vault", vault.underlying_mint.as_ref()],
+        bump = vault.bump,
+        constraint = vault.is_active @ ExoticVaultError::VaultInactive
+    )]
     pub vault: Account<'info, ExoticVault>,
 
     #[account(
@@ -196,24 +215,25 @@ pub struct BuyOption<'info> {
     )]
     pub sample_buffer: Account<'info, PriceSampleBuffer>,
 
-    #[account(
-        mut,
-        associated_token::mint = collateral_mint,
-        associated_token::authority = user
-    )]
-    pub user_collateral: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: User's collateral token account
+    #[account(mut)]
+    pub user_collateral: AccountInfo<'info>,
 
+    /// CHECK: Vault collateral
     #[account(
         mut,
         seeds = [b"vault_collateral", vault.key().as_ref()],
         bump = vault.collateral_vault_bump
     )]
-    pub vault_collateral: InterfaceAccount<'info, TokenAccount>,
+    pub vault_collateral: AccountInfo<'info>,
 
-    pub collateral_mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: Collateral mint
+    pub collateral_mint: AccountInfo<'info>,
+
+    /// CHECK: SPL Token program
+    pub token_program: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -221,7 +241,12 @@ pub struct BuyBarrierOption<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"exotic_vault", vault.underlying_mint.as_ref()],
+        bump = vault.bump,
+        constraint = vault.is_active @ ExoticVaultError::VaultInactive
+    )]
     pub vault: Account<'info, ExoticVault>,
 
     #[account(
@@ -233,35 +258,50 @@ pub struct BuyBarrierOption<'info> {
     )]
     pub option: Account<'info, ExoticOption>,
 
-    #[account(
-        mut,
-        associated_token::mint = collateral_mint,
-        associated_token::authority = user
-    )]
-    pub user_collateral: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: User's collateral token account
+    #[account(mut)]
+    pub user_collateral: AccountInfo<'info>,
 
+    /// CHECK: Vault collateral
     #[account(
         mut,
         seeds = [b"vault_collateral", vault.key().as_ref()],
         bump = vault.collateral_vault_bump
     )]
-    pub vault_collateral: InterfaceAccount<'info, TokenAccount>,
+    pub vault_collateral: AccountInfo<'info>,
 
-    pub collateral_mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: Collateral mint
+    pub collateral_mint: AccountInfo<'info>,
+
+    /// CHECK: SPL Token program
+    pub token_program: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
 pub struct CheckBarrier<'info> {
     pub keeper: Signer<'info>,
 
-    #[account(mut)]
+    #[account(
+        seeds = [b"exotic_vault", vault.underlying_mint.as_ref()],
+        bump = vault.bump
+    )]
+    pub vault: Account<'info, ExoticVault>,
+
+    #[account(
+        mut,
+        seeds = [b"option", vault.key().as_ref(), option.owner.as_ref(), &option.option_index.to_le_bytes()],
+        bump = option.bump,
+        constraint = option.status == OptionStatus::Active @ ExoticVaultError::AlreadySettled
+    )]
     pub option: Account<'info, ExoticOption>,
 
     /// Price feed from shared oracle
-    /// CHECK: Validated via CPI
+    /// CHECK: Validated via vault.price_feed
+    #[account(
+        constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle
+    )]
     pub price_feed: AccountInfo<'info>,
 }
 
@@ -269,9 +309,19 @@ pub struct CheckBarrier<'info> {
 pub struct RecordPriceSample<'info> {
     pub oracle: Signer<'info>,
 
+    #[account(
+        seeds = [b"exotic_vault", vault.underlying_mint.as_ref()],
+        bump = vault.bump
+    )]
     pub vault: Account<'info, ExoticVault>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [b"option", vault.key().as_ref(), option.owner.as_ref(), &option.option_index.to_le_bytes()],
+        bump = option.bump,
+        constraint = option.status == OptionStatus::Active @ ExoticVaultError::AlreadySettled,
+        constraint = option.is_asian() @ ExoticVaultError::InvalidOptionType
+    )]
     pub option: Account<'info, ExoticOption>,
 
     #[account(
@@ -280,16 +330,30 @@ pub struct RecordPriceSample<'info> {
         bump = sample_buffer.bump
     )]
     pub sample_buffer: Account<'info, PriceSampleBuffer>,
+
+    /// Price feed from shared oracle
+    /// CHECK: Validated via vault.price_feed
+    #[account(
+        constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle
+    )]
+    pub price_feed: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
 pub struct SettleOption<'info> {
     pub user: Signer<'info>,
 
+    #[account(
+        mut,
+        seeds = [b"exotic_vault", vault.underlying_mint.as_ref()],
+        bump = vault.bump
+    )]
     pub vault: Account<'info, ExoticVault>,
 
     #[account(
         mut,
+        seeds = [b"option", vault.key().as_ref(), option.owner.as_ref(), &option.option_index.to_le_bytes()],
+        bump = option.bump,
         constraint = option.owner == user.key() @ ExoticVaultError::Unauthorized
     )]
     pub option: Account<'info, ExoticOption>,
@@ -299,6 +363,13 @@ pub struct SettleOption<'info> {
         bump = sample_buffer.bump
     )]
     pub sample_buffer: Option<Account<'info, PriceSampleBuffer>>,
+
+    /// Price feed from shared oracle
+    /// CHECK: Validated via vault.price_feed
+    #[account(
+        constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle
+    )]
+    pub price_feed: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -306,31 +377,39 @@ pub struct ClaimPayout<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
+    #[account(
+        seeds = [b"exotic_vault", vault.underlying_mint.as_ref()],
+        bump = vault.bump
+    )]
     pub vault: Account<'info, ExoticVault>,
 
     #[account(
         mut,
+        seeds = [b"option", vault.key().as_ref(), user.key().as_ref(), &option.option_index.to_le_bytes()],
+        bump = option.bump,
         constraint = option.owner == user.key() @ ExoticVaultError::Unauthorized,
-        constraint = option.status == OptionStatus::Settled @ ExoticVaultError::NotSettled
+        constraint = option.status == OptionStatus::Settled @ ExoticVaultError::NotSettled,
+        close = user
     )]
     pub option: Account<'info, ExoticOption>,
 
+    /// CHECK: Vault collateral
     #[account(
         mut,
         seeds = [b"vault_collateral", vault.key().as_ref()],
         bump = vault.collateral_vault_bump
     )]
-    pub vault_collateral: InterfaceAccount<'info, TokenAccount>,
+    pub vault_collateral: AccountInfo<'info>,
 
-    #[account(
-        mut,
-        associated_token::mint = collateral_mint,
-        associated_token::authority = user
-    )]
-    pub user_collateral: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: User's collateral token account
+    #[account(mut)]
+    pub user_collateral: AccountInfo<'info>,
 
-    pub collateral_mint: InterfaceAccount<'info, Mint>,
-    pub token_program: Interface<'info, TokenInterface>,
+    /// CHECK: Collateral mint
+    pub collateral_mint: AccountInfo<'info>,
+
+    /// CHECK: SPL Token program
+    pub token_program: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -342,4 +421,83 @@ pub struct UpdateVault<'info> {
         constraint = authority.key() == vault.authority @ ExoticVaultError::Unauthorized
     )]
     pub vault: Account<'info, ExoticVault>,
+}
+
+#[derive(Accounts)]
+pub struct DepositLiquidity<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"exotic_vault", vault.underlying_mint.as_ref()],
+        bump = vault.bump,
+        constraint = vault.is_active @ ExoticVaultError::VaultInactive
+    )]
+    pub vault: Account<'info, ExoticVault>,
+
+    #[account(
+        init_if_needed,
+        payer = user,
+        space = 8 + LiquidityProvider::INIT_SPACE,
+        seeds = [b"lp", vault.key().as_ref(), user.key().as_ref()],
+        bump
+    )]
+    pub lp_account: Account<'info, LiquidityProvider>,
+
+    /// CHECK: User's collateral token account
+    #[account(mut)]
+    pub user_collateral: AccountInfo<'info>,
+
+    /// CHECK: Vault collateral
+    #[account(
+        mut,
+        seeds = [b"vault_collateral", vault.key().as_ref()],
+        bump = vault.collateral_vault_bump
+    )]
+    pub vault_collateral: AccountInfo<'info>,
+
+    /// CHECK: SPL Token program
+    pub token_program: AccountInfo<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct WithdrawLiquidity<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"exotic_vault", vault.underlying_mint.as_ref()],
+        bump = vault.bump
+    )]
+    pub vault: Account<'info, ExoticVault>,
+
+    #[account(
+        mut,
+        seeds = [b"lp", vault.key().as_ref(), user.key().as_ref()],
+        bump = lp_account.bump,
+        constraint = lp_account.owner == user.key() @ ExoticVaultError::Unauthorized
+    )]
+    pub lp_account: Account<'info, LiquidityProvider>,
+
+    /// CHECK: User's collateral token account
+    #[account(mut)]
+    pub user_collateral: AccountInfo<'info>,
+
+    /// CHECK: Vault collateral
+    #[account(
+        mut,
+        seeds = [b"vault_collateral", vault.key().as_ref()],
+        bump = vault.collateral_vault_bump
+    )]
+    pub vault_collateral: AccountInfo<'info>,
+
+    /// CHECK: Collateral mint
+    pub collateral_mint: AccountInfo<'info>,
+
+    /// CHECK: SPL Token program
+    pub token_program: AccountInfo<'info>,
 }

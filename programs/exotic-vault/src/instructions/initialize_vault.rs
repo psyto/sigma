@@ -30,6 +30,13 @@ pub fn handler(ctx: Context<InitializeVault>, params: VaultParams) -> Result<()>
     vault.total_fees_collected = 0;
     vault.total_payouts = 0;
 
+    // Initialize LP state
+    vault.total_lp_shares = 0;
+    vault.total_liquidity = 0;
+    vault.accumulated_lp_fees = 0;
+    vault.active_options = 0;
+    vault.total_exposure = 0;
+
     vault.is_active = true;
     vault.bump = ctx.bumps.vault;
     vault.collateral_vault_bump = ctx.bumps.vault_collateral;

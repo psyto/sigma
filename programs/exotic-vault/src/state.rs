@@ -38,6 +38,25 @@ pub struct ExoticVault {
     pub total_payouts: u64,
 
     // ═══════════════════════════════════════════════════════════════════════
+    // LP (Liquidity Provider) State
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// Total LP shares outstanding
+    pub total_lp_shares: u64,
+
+    /// Total liquidity in the vault
+    pub total_liquidity: u64,
+
+    /// Accumulated LP fees
+    pub accumulated_lp_fees: u64,
+
+    /// Active options count (for withdrawal limits)
+    pub active_options: u64,
+
+    /// Total exposure (sum of all active notional)
+    pub total_exposure: u128,
+
+    // ═══════════════════════════════════════════════════════════════════════
     // State
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -45,6 +64,37 @@ pub struct ExoticVault {
 
     pub bump: u8,
     pub collateral_vault_bump: u8,
+}
+
+/// Liquidity provider account
+#[account]
+#[derive(InitSpace)]
+pub struct LiquidityProvider {
+    /// LP owner
+    pub owner: Pubkey,
+
+    /// Associated vault
+    pub vault: Pubkey,
+
+    /// LP shares owned
+    pub shares: u64,
+
+    /// Total deposited (for tracking)
+    pub total_deposited: u64,
+
+    /// Total withdrawn (for tracking)
+    pub total_withdrawn: u64,
+
+    /// Fees claimed
+    pub fees_claimed: u64,
+
+    /// Deposit timestamp
+    pub deposited_at: i64,
+
+    /// Last interaction timestamp
+    pub last_interaction: i64,
+
+    pub bump: u8,
 }
 
 /// Individual exotic option
@@ -147,7 +197,7 @@ pub struct PriceSample {
     pub timestamp: i64,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
 pub enum OptionType {
     // Asian Options (TWAP-settled)
     AsianCall,

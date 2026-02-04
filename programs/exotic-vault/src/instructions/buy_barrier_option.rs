@@ -1,6 +1,36 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{transfer_checked, TransferChecked};
+use anchor_lang::solana_program::program::invoke;
 use crate::{BuyBarrierOption, ExoticVaultError, state::{OptionType, OptionStatus}};
+
+/// SPL Token transfer instruction
+fn spl_token_transfer<'info>(
+    token_program: &AccountInfo<'info>,
+    source: &AccountInfo<'info>,
+    destination: &AccountInfo<'info>,
+    authority: &AccountInfo<'info>,
+    amount: u64,
+) -> Result<()> {
+    let ix = spl_token::instruction::transfer(
+        token_program.key,
+        source.key,
+        destination.key,
+        authority.key,
+        &[],
+        amount,
+    )?;
+
+    invoke(
+        &ix,
+        &[
+            source.clone(),
+            destination.clone(),
+            authority.clone(),
+            token_program.clone(),
+        ],
+    )?;
+
+    Ok(())
+}
 
 pub fn handler(
     ctx: Context<BuyBarrierOption>,
@@ -22,6 +52,13 @@ pub fn handler(
     require!(duration_days <= vault.max_duration_days, ExoticVaultError::DurationTooLong);
     require!(strike_price > 0, ExoticVaultError::InvalidStrikePrice);
     require!(barrier_price > 0, ExoticVaultError::InvalidBarrierPrice);
+
+    // Check vault has sufficient liquidity
+    let max_payout = notional; // Simplified: max payout is the notional
+    require!(
+        vault.total_liquidity >= vault.total_exposure as u64 + max_payout,
+        ExoticVaultError::InsufficientLiquidity
+    );
 
     // Validate barrier vs strike relationship
     let is_up_barrier = matches!(
@@ -54,24 +91,21 @@ pub fn handler(
     let total_cost = premium + fee;
 
     // Transfer premium + fee
-    transfer_checked(
-        CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            TransferChecked {
-                from: ctx.accounts.user_collateral.to_account_info(),
-                mint: ctx.accounts.collateral_mint.to_account_info(),
-                to: ctx.accounts.vault_collateral.to_account_info(),
-                authority: ctx.accounts.user.to_account_info(),
-            },
-        ),
+    spl_token_transfer(
+        &ctx.accounts.token_program,
+        &ctx.accounts.user_collateral,
+        &ctx.accounts.vault_collateral,
+        &ctx.accounts.user.to_account_info(),
         total_cost,
-        ctx.accounts.collateral_mint.decimals,
     )?;
 
     // Update vault stats
     vault.total_premiums_collected = vault.total_premiums_collected.checked_add(premium).ok_or(ExoticVaultError::Overflow)?;
     vault.total_fees_collected = vault.total_fees_collected.checked_add(fee).ok_or(ExoticVaultError::Overflow)?;
     vault.total_volume = vault.total_volume.checked_add(notional as u128).ok_or(ExoticVaultError::Overflow)?;
+    vault.accumulated_lp_fees = vault.accumulated_lp_fees.checked_add(fee).ok_or(ExoticVaultError::Overflow)?;
+    vault.active_options = vault.active_options.checked_add(1).ok_or(ExoticVaultError::Overflow)?;
+    vault.total_exposure = vault.total_exposure.checked_add(notional as u128).ok_or(ExoticVaultError::Overflow)?;
 
     let option_index = vault.total_options;
     vault.total_options = vault.total_options.checked_add(1).ok_or(ExoticVaultError::Overflow)?;

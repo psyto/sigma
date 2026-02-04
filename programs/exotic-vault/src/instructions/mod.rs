@@ -6,6 +6,7 @@ pub mod record_price_sample;
 pub mod settle_option;
 pub mod claim_payout;
 pub mod update_vault;
+pub mod liquidity;
 
 pub use initialize_vault::*;
 pub use buy_option::*;
@@ -15,3 +16,4 @@ pub use record_price_sample::*;
 pub use settle_option::*;
 pub use claim_payout::*;
 pub use update_vault::*;
+pub use liquidity::*;

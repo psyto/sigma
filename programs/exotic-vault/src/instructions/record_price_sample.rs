@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
 use crate::{RecordPriceSample, ExoticVaultError, state::{OptionStatus, PriceSample}};
+use shared_oracle::state::PriceFeed;
 
-pub fn handler(ctx: Context<RecordPriceSample>, price: u64) -> Result<()> {
+pub fn handler(ctx: Context<RecordPriceSample>) -> Result<()> {
     let vault = &ctx.accounts.vault;
     let option = &ctx.accounts.option;
     let sample_buffer = &mut ctx.accounts.sample_buffer;
@@ -10,6 +11,18 @@ pub fn handler(ctx: Context<RecordPriceSample>, price: u64) -> Result<()> {
     // Only record for active Asian options
     require!(option.status == OptionStatus::Active, ExoticVaultError::AlreadySettled);
     require!(option.is_asian(), ExoticVaultError::InvalidOptionType);
+
+    // Read price from oracle
+    let price_feed_data = ctx.accounts.price_feed.try_borrow_data()?;
+    let price_feed = PriceFeed::try_deserialize(&mut &price_feed_data[8..])?;
+
+    // Check price staleness
+    require!(
+        !price_feed.is_stale(clock.unix_timestamp),
+        ExoticVaultError::StalePriceData
+    );
+
+    let price = price_feed.last_price;
 
     // Check minimum interval
     if let Some(last_sample) = sample_buffer.samples.last() {

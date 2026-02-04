@@ -1,6 +1,38 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{transfer_checked, TransferChecked};
+use anchor_lang::solana_program::program::invoke_signed;
 use crate::{ClaimPayout, ExoticVaultError, state::OptionStatus};
+
+/// SPL Token transfer with PDA signer
+fn spl_token_transfer_signed<'info>(
+    token_program: &AccountInfo<'info>,
+    source: &AccountInfo<'info>,
+    destination: &AccountInfo<'info>,
+    authority: &AccountInfo<'info>,
+    amount: u64,
+    signer_seeds: &[&[&[u8]]],
+) -> Result<()> {
+    let ix = spl_token::instruction::transfer(
+        token_program.key,
+        source.key,
+        destination.key,
+        authority.key,
+        &[],
+        amount,
+    )?;
+
+    invoke_signed(
+        &ix,
+        &[
+            source.clone(),
+            destination.clone(),
+            authority.clone(),
+            token_program.clone(),
+        ],
+        signer_seeds,
+    )?;
+
+    Ok(())
+}
 
 pub fn handler(ctx: Context<ClaimPayout>) -> Result<()> {
     let vault = &ctx.accounts.vault;
@@ -19,19 +51,13 @@ pub fn handler(ctx: Context<ClaimPayout>) -> Result<()> {
         ];
         let signer_seeds = &[&seeds[..]];
 
-        transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                TransferChecked {
-                    from: ctx.accounts.vault_collateral.to_account_info(),
-                    mint: ctx.accounts.collateral_mint.to_account_info(),
-                    to: ctx.accounts.user_collateral.to_account_info(),
-                    authority: ctx.accounts.vault_collateral.to_account_info(),
-                },
-                signer_seeds,
-            ),
+        spl_token_transfer_signed(
+            &ctx.accounts.token_program,
+            &ctx.accounts.vault_collateral,
+            &ctx.accounts.user_collateral,
+            &ctx.accounts.vault_collateral,
             payout,
-            ctx.accounts.collateral_mint.decimals,
+            signer_seeds,
         )?;
     }
 
