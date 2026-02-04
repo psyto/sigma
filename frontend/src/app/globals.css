@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0b0e11;
+  --foreground: #eaecef;
+  --card: #1e2329;
+  --card-hover: #2b3139;
+  --border: #2b3139;
+  --primary: #f0b90b;
+  --primary-hover: #d4a50a;
+  --success: #0ecb81;
+  --danger: #f6465d;
+  --warning: #f0b90b;
+  --muted: #848e9c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-hover: var(--card-hover);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-muted: var(--muted);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Wallet adapter styles override */
+.wallet-adapter-button {
+  background-color: var(--primary) !important;
+  color: var(--background) !important;
+  font-weight: 600 !important;
+}
+
+.wallet-adapter-button:hover {
+  background-color: var(--primary-hover) !important;
+}
+
+.wallet-adapter-modal-wrapper {
+  background-color: var(--card) !important;
+}
+
+.wallet-adapter-modal-title {
+  color: var(--foreground) !important;
+}
