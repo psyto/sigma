@@ -3,16 +3,16 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-volswap = "SIGvo1swap111111111111111111111111111111111"
-funding_swap = "SIGfund1swap11111111111111111111111111111"
-exotic_vault = "SIGexot1vault1111111111111111111111111111"
-shared_oracle = "SIGorac1e11111111111111111111111111111111"
+volswap = "HkmNK58gA3ho7iorsAbHXfTHHLYJ6jenKcZDPDjNknAQ"
+funding_swap = "BBnksXi8bg3Z87qdu4neD5LeSY2dgreiABPCeYpvR77u"
+exotic_vault = "36pKgauHLWvZDgEs8czCPvyLy8i5mZTD1QXuuCpvcqDV"
+shared_oracle = "DyPhNbm845yWMuAmBLmsLANxm7wDJLDwoQNR2n8n8kM1"
 
 [programs.devnet]
-volswap = "SIGvo1swap111111111111111111111111111111111"
-funding_swap = "SIGfund1swap11111111111111111111111111111"
-exotic_vault = "SIGexot1vault1111111111111111111111111111"
-shared_oracle = "SIGorac1e11111111111111111111111111111111"
+volswap = "HkmNK58gA3ho7iorsAbHXfTHHLYJ6jenKcZDPDjNknAQ"
+funding_swap = "BBnksXi8bg3Z87qdu4neD5LeSY2dgreiABPCeYpvR77u"
+exotic_vault = "36pKgauHLWvZDgEs8czCPvyLy8i5mZTD1QXuuCpvcqDV"
+shared_oracle = "DyPhNbm845yWMuAmBLmsLANxm7wDJLDwoQNR2n8n8kM1"
 
 [registry]
 url = "https://api.apr.dev"

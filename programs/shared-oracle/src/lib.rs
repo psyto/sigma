@@ -1,18 +1,24 @@
 use anchor_lang::prelude::*;
 
-declare_id!("SIGorac1e11111111111111111111111111111111");
+declare_id!("DyPhNbm845yWMuAmBLmsLANxm7wDJLDwoQNR2n8n8kM1");
 
 pub mod state;
 pub mod errors;
+pub mod instructions;
 
 use state::*;
 use errors::OracleError;
 
 /// Shared Oracle Program for Sigma Protocol
-/// Provides price feeds, TWAP calculations, and funding rate data for all derivative protocols
+/// Provides price feeds, TWAP calculations, variance data, and funding rate feeds
+/// for VolSwap, FundingSwap, and ExoticVault protocols.
 #[program]
 pub mod shared_oracle {
     use super::*;
+
+    // ============================================================================
+    // Price Feed Instructions
+    // ============================================================================
 
     /// Initialize a new price feed for an asset
     pub fn initialize_price_feed(
@@ -21,123 +27,127 @@ pub mod shared_oracle {
         sample_interval_seconds: u64,
         max_samples: u16,
     ) -> Result<()> {
-        let feed = &mut ctx.accounts.price_feed;
-        let clock = Clock::get()?;
-
-        require!(asset_symbol.len() <= 16, OracleError::SymbolTooLong);
-        require!(sample_interval_seconds >= 60, OracleError::IntervalTooShort);
-        require!(max_samples >= 100 && max_samples <= 10000, OracleError::InvalidMaxSamples);
-
-        feed.authority = ctx.accounts.authority.key();
-        feed.asset_symbol = asset_symbol;
-        feed.asset_mint = ctx.accounts.asset_mint.key();
-        feed.sample_interval_seconds = sample_interval_seconds;
-        feed.max_samples = max_samples;
-        feed.sample_count = 0;
-        feed.last_sample_time = 0;
-        feed.last_price = 0;
-        feed.twap = 0;
-        feed.created_at = clock.unix_timestamp;
-        feed.is_active = true;
-        feed.bump = ctx.bumps.price_feed;
-
-        msg!("Price feed initialized for {}", feed.asset_symbol);
-        Ok(())
+        instructions::price_feed::initialize_price_feed(
+            ctx,
+            asset_symbol,
+            sample_interval_seconds,
+            max_samples,
+        )
     }
 
-    /// Record a new price sample (called by authorized oracle)
-    pub fn record_price(
-        ctx: Context<RecordPrice>,
-        price: u64,
+    /// Record a new price sample from authorized oracle
+    pub fn record_price(ctx: Context<RecordPrice>, price: u64) -> Result<()> {
+        instructions::price_feed::record_price(ctx, price)
+    }
+
+    /// Record price from Pyth oracle
+    pub fn record_price_from_pyth(ctx: Context<RecordPriceFromPyth>) -> Result<()> {
+        instructions::price_feed::record_price_from_pyth(ctx)
+    }
+
+    /// Update price feed configuration
+    pub fn update_price_feed(
+        ctx: Context<UpdatePriceFeed>,
+        new_interval: Option<u64>,
+        is_active: Option<bool>,
     ) -> Result<()> {
-        let feed = &mut ctx.accounts.price_feed;
-        let buffer = &mut ctx.accounts.sample_buffer;
-        let clock = Clock::get()?;
-
-        require!(feed.is_active, OracleError::FeedInactive);
-        require!(price > 0, OracleError::InvalidPrice);
-
-        // Check minimum interval
-        let time_since_last = clock.unix_timestamp - feed.last_sample_time;
-        require!(
-            time_since_last >= feed.sample_interval_seconds as i64,
-            OracleError::TooSoon
-        );
-
-        // Add sample to buffer
-        buffer.samples.push(PriceSample {
-            price,
-            timestamp: clock.unix_timestamp,
-        });
-
-        // Trim buffer if exceeded max samples
-        if buffer.samples.len() > feed.max_samples as usize {
-            buffer.samples.remove(0);
-        }
-
-        // Update feed state
-        feed.last_price = price;
-        feed.last_sample_time = clock.unix_timestamp;
-        feed.sample_count = buffer.samples.len() as u16;
-
-        // Calculate TWAP
-        feed.twap = buffer.calculate_twap();
-
-        msg!("Price recorded: {} at {}", price, clock.unix_timestamp);
-        Ok(())
+        instructions::price_feed::update_price_feed(ctx, new_interval, is_active)
     }
 
-    /// Initialize funding rate feed
+    /// Transfer price feed authority
+    pub fn transfer_price_feed_authority(
+        ctx: Context<TransferPriceFeedAuthority>,
+    ) -> Result<()> {
+        instructions::price_feed::transfer_authority(ctx)
+    }
+
+    // ============================================================================
+    // Funding Feed Instructions
+    // ============================================================================
+
+    /// Initialize funding rate feed for a perpetual market
     pub fn initialize_funding_feed(
         ctx: Context<InitializeFundingFeed>,
         market_symbol: String,
+        funding_interval_seconds: u64,
     ) -> Result<()> {
-        let feed = &mut ctx.accounts.funding_feed;
-        let clock = Clock::get()?;
-
-        require!(market_symbol.len() <= 16, OracleError::SymbolTooLong);
-
-        feed.authority = ctx.accounts.authority.key();
-        feed.market_symbol = market_symbol;
-        feed.current_rate_bps = 0;
-        feed.last_update = clock.unix_timestamp;
-        feed.rate_history = Vec::new();
-        feed.is_active = true;
-        feed.bump = ctx.bumps.funding_feed;
-
-        msg!("Funding feed initialized for {}", feed.market_symbol);
-        Ok(())
+        instructions::funding_feed::initialize_funding_feed(
+            ctx,
+            market_symbol,
+            funding_interval_seconds,
+        )
     }
 
-    /// Record funding rate (called by authorized oracle)
-    pub fn record_funding_rate(
-        ctx: Context<RecordFundingRate>,
-        rate_bps: i16,
+    /// Record funding rate from authorized oracle
+    pub fn record_funding_rate(ctx: Context<RecordFundingRate>, rate_bps: i64) -> Result<()> {
+        instructions::funding_feed::record_funding_rate(ctx, rate_bps)
+    }
+
+    /// Update funding feed configuration
+    pub fn update_funding_feed(
+        ctx: Context<UpdateFundingFeed>,
+        new_interval: Option<u64>,
+        is_active: Option<bool>,
     ) -> Result<()> {
-        let feed = &mut ctx.accounts.funding_feed;
-        let clock = Clock::get()?;
+        instructions::funding_feed::update_funding_feed(ctx, new_interval, is_active)
+    }
 
-        require!(feed.is_active, OracleError::FeedInactive);
+    // ============================================================================
+    // Aggregated Feed Instructions
+    // ============================================================================
 
-        feed.current_rate_bps = rate_bps;
-        feed.last_update = clock.unix_timestamp;
+    /// Initialize an aggregated price feed with multiple sources
+    pub fn initialize_aggregated_feed(
+        ctx: Context<InitializeAggregatedFeed>,
+        asset_symbol: String,
+        aggregation_method: AggregationMethod,
+    ) -> Result<()> {
+        instructions::aggregated_feed::initialize_aggregated_feed(
+            ctx,
+            asset_symbol,
+            aggregation_method,
+        )
+    }
 
-        // Store in history (keep last 100)
-        feed.rate_history.push(FundingRateSample {
-            rate_bps,
-            timestamp: clock.unix_timestamp,
-        });
-        if feed.rate_history.len() > 100 {
-            feed.rate_history.remove(0);
-        }
+    /// Add a price source to an aggregated feed
+    pub fn add_price_source(
+        ctx: Context<AddPriceSource>,
+        source_type: PriceSourceType,
+        weight: u16,
+    ) -> Result<()> {
+        instructions::aggregated_feed::add_price_source(ctx, source_type, weight)
+    }
 
-        msg!("Funding rate recorded: {} bps", rate_bps);
-        Ok(())
+    /// Update aggregated price from all sources
+    pub fn update_aggregated_price(ctx: Context<UpdateAggregatedPrice>) -> Result<()> {
+        instructions::aggregated_feed::update_aggregated_price(ctx)
+    }
+
+    // ============================================================================
+    // Variance Tracking Instructions
+    // ============================================================================
+
+    /// Initialize variance tracker for an asset
+    pub fn initialize_variance_tracker(
+        ctx: Context<InitializeVarianceTracker>,
+        epoch_duration_seconds: u64,
+    ) -> Result<()> {
+        instructions::variance::initialize_variance_tracker(ctx, epoch_duration_seconds)
+    }
+
+    /// Finalize variance for completed epoch
+    pub fn finalize_epoch_variance(ctx: Context<FinalizeEpochVariance>) -> Result<()> {
+        instructions::variance::finalize_epoch_variance(ctx)
+    }
+
+    /// Start new variance epoch
+    pub fn start_new_variance_epoch(ctx: Context<StartNewVarianceEpoch>) -> Result<()> {
+        instructions::variance::start_new_variance_epoch(ctx)
     }
 }
 
 // ============================================================================
-// Contexts
+// Contexts - Price Feed
 // ============================================================================
 
 #[derive(Accounts)]
@@ -177,16 +187,74 @@ pub struct RecordPrice<'info> {
     )]
     pub authority: Signer<'info>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = price_feed.is_active @ OracleError::FeedInactive
+    )]
     pub price_feed: Account<'info, PriceFeed>,
 
     #[account(
         mut,
         seeds = [b"sample_buffer", price_feed.key().as_ref()],
-        bump
+        bump = sample_buffer.bump
     )]
     pub sample_buffer: Account<'info, SampleBuffer>,
 }
+
+#[derive(Accounts)]
+pub struct RecordPriceFromPyth<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = price_feed.is_active @ OracleError::FeedInactive,
+        constraint = price_feed.pyth_feed.is_some() @ OracleError::NoPythFeed
+    )]
+    pub price_feed: Account<'info, PriceFeed>,
+
+    #[account(
+        mut,
+        seeds = [b"sample_buffer", price_feed.key().as_ref()],
+        bump = sample_buffer.bump
+    )]
+    pub sample_buffer: Account<'info, SampleBuffer>,
+
+    /// CHECK: Pyth price account, validated in handler
+    #[account(
+        constraint = pyth_price_account.key() == price_feed.pyth_feed.unwrap() @ OracleError::InvalidPythFeed
+    )]
+    pub pyth_price_account: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+pub struct UpdatePriceFeed<'info> {
+    #[account(
+        constraint = authority.key() == price_feed.authority @ OracleError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub price_feed: Account<'info, PriceFeed>,
+}
+
+#[derive(Accounts)]
+pub struct TransferPriceFeedAuthority<'info> {
+    #[account(
+        constraint = authority.key() == price_feed.authority @ OracleError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    /// CHECK: New authority
+    pub new_authority: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub price_feed: Account<'info, PriceFeed>,
+}
+
+// ============================================================================
+// Contexts - Funding Feed
+// ============================================================================
 
 #[derive(Accounts)]
 #[instruction(market_symbol: String)]
@@ -213,6 +281,127 @@ pub struct RecordFundingRate<'info> {
     )]
     pub authority: Signer<'info>,
 
+    #[account(
+        mut,
+        constraint = funding_feed.is_active @ OracleError::FeedInactive
+    )]
+    pub funding_feed: Account<'info, FundingFeed>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateFundingFeed<'info> {
+    #[account(
+        constraint = authority.key() == funding_feed.authority @ OracleError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
     #[account(mut)]
     pub funding_feed: Account<'info, FundingFeed>,
+}
+
+// ============================================================================
+// Contexts - Aggregated Feed
+// ============================================================================
+
+#[derive(Accounts)]
+#[instruction(asset_symbol: String)]
+pub struct InitializeAggregatedFeed<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + AggregatedFeed::INIT_SPACE,
+        seeds = [b"aggregated_feed", asset_symbol.as_bytes()],
+        bump
+    )]
+    pub aggregated_feed: Account<'info, AggregatedFeed>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AddPriceSource<'info> {
+    #[account(
+        constraint = authority.key() == aggregated_feed.authority @ OracleError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub aggregated_feed: Account<'info, AggregatedFeed>,
+
+    /// CHECK: Source account (PriceFeed or external oracle)
+    pub source_account: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateAggregatedPrice<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = aggregated_feed.is_active @ OracleError::FeedInactive
+    )]
+    pub aggregated_feed: Account<'info, AggregatedFeed>,
+    // Remaining accounts: price sources
+}
+
+// ============================================================================
+// Contexts - Variance Tracking
+// ============================================================================
+
+#[derive(Accounts)]
+pub struct InitializeVarianceTracker<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    pub price_feed: Account<'info, PriceFeed>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + VarianceTracker::INIT_SPACE,
+        seeds = [b"variance_tracker", price_feed.key().as_ref()],
+        bump
+    )]
+    pub variance_tracker: Account<'info, VarianceTracker>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct FinalizeEpochVariance<'info> {
+    pub authority: Signer<'info>,
+
+    pub price_feed: Account<'info, PriceFeed>,
+
+    #[account(
+        seeds = [b"sample_buffer", price_feed.key().as_ref()],
+        bump = sample_buffer.bump
+    )]
+    pub sample_buffer: Account<'info, SampleBuffer>,
+
+    #[account(
+        mut,
+        seeds = [b"variance_tracker", price_feed.key().as_ref()],
+        bump = variance_tracker.bump,
+        constraint = variance_tracker.price_feed == price_feed.key() @ OracleError::InvalidPriceFeed
+    )]
+    pub variance_tracker: Account<'info, VarianceTracker>,
+}
+
+#[derive(Accounts)]
+pub struct StartNewVarianceEpoch<'info> {
+    pub authority: Signer<'info>,
+
+    pub price_feed: Account<'info, PriceFeed>,
+
+    #[account(
+        mut,
+        seeds = [b"variance_tracker", price_feed.key().as_ref()],
+        bump = variance_tracker.bump
+    )]
+    pub variance_tracker: Account<'info, VarianceTracker>,
 }
