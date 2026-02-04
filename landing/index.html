@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sigma Protocol | Advanced Derivatives on Solana</title>
+  <meta name="description" content="Trade volatility, hedge funding rates, and access exotic options on Solana. 60% cheaper than traditional alternatives.">
+  <meta property="og:title" content="Sigma Protocol | Advanced Derivatives on Solana">
+  <meta property="og:description" content="Trade volatility, hedge funding rates, and access exotic options. DeFi derivatives done right.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Sigma Protocol">
+  <meta name="twitter:description" content="Advanced derivatives on Solana. 60% cheaper than alternatives.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>Σ</text></svg>">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --primary: #6366f1;
+      --primary-dark: #4f46e5;
+      --secondary: #10b981;
+      --accent: #f59e0b;
+      --dark: #0f172a;
+      --darker: #020617;
+      --light: #f8fafc;
+      --gray: #64748b;
+      --gray-dark: #334155;
+      --volswap: #8b5cf6;
+      --funding: #06b6d4;
+      --exotic: #f59e0b;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--darker);
+      color: var(--light);
+      line-height: 1.6;
+    }
+
+    /* Navigation */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(2, 6, 23, 0.8);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .logo {
+      font-size: 28px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-decoration: none;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--gray);
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: color 0.3s;
+    }
+
+    .nav-links a:hover {
+      color: var(--light);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s;
+      text-decoration: none;
+      border: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 40px rgba(99, 102, 241, 0.4);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--light);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--primary);
+    }
+
+    /* Hero Section */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 120px 40px 80px;
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 50%, rgba(16, 185, 129, 0.1) 0%, transparent 40%),
+        linear-gradient(180deg, var(--darker) 0%, var(--dark) 100%);
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 100px;
+      font-size: 14px;
+      color: var(--primary);
+      margin-bottom: 32px;
+    }
+
+    .hero-badge .dot {
+      width: 8px;
+      height: 8px;
+      background: var(--secondary);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .hero h1 {
+      font-size: clamp(40px, 8vw, 72px);
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      max-width: 900px;
+    }
+
+    .hero h1 .gradient {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 20px;
+      color: var(--gray);
+      max-width: 600px;
+      margin-bottom: 40px;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 60px;
+    }
+
+    .hero-stats {
+      display: flex;
+      gap: 60px;
+    }
+
+    .hero-stat {
+      text-align: center;
+    }
+
+    .hero-stat-value {
+      font-size: 48px;
+      font-weight: 800;
+      color: var(--secondary);
+    }
+
+    .hero-stat-label {
+      font-size: 14px;
+      color: var(--gray);
+      margin-top: 4px;
+    }
+
+    /* Section Styles */
+    section {
+      padding: 120px 40px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      display: inline-block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: clamp(32px, 5vw, 48px);
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+
+    .section-subtitle {
+      font-size: 18px;
+      color: var(--gray);
+      max-width: 600px;
+      margin-bottom: 60px;
+    }
+
+    /* Problem Section */
+    .problem {
+      background: linear-gradient(180deg, var(--dark) 0%, var(--darker) 100%);
+    }
+
+    .problem-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+
+    .problem-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      padding: 32px;
+      transition: all 0.3s;
+    }
+
+    .problem-card:hover {
+      border-color: rgba(239, 68, 68, 0.3);
+      background: rgba(239, 68, 68, 0.05);
+    }
+
+    .problem-icon {
+      font-size: 32px;
+      margin-bottom: 16px;
+    }
+
+    .problem-card h3 {
+      font-size: 20px;
+      margin-bottom: 12px;
+      color: var(--light);
+    }
+
+    .problem-card p {
+      font-size: 15px;
+      color: var(--gray);
+    }
+
+    /* Protocols Section */
+    .protocols-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 32px;
+    }
+
+    .protocol-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 40px;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .protocol-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+    }
+
+    .protocol-card.volswap::before {
+      background: linear-gradient(90deg, var(--volswap), transparent);
+    }
+
+    .protocol-card.funding::before {
+      background: linear-gradient(90deg, var(--funding), transparent);
+    }
+
+    .protocol-card.exotic::before {
+      background: linear-gradient(90deg, var(--exotic), transparent);
+    }
+
+    .protocol-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .protocol-badge {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+    .protocol-badge.volswap {
+      background: rgba(139, 92, 246, 0.15);
+      color: var(--volswap);
+    }
+
+    .protocol-badge.funding {
+      background: rgba(6, 182, 212, 0.15);
+      color: var(--funding);
+    }
+
+    .protocol-badge.exotic {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--exotic);
+    }
+
+    .protocol-card h3 {
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+
+    .protocol-card p {
+      font-size: 16px;
+      color: var(--gray);
+      margin-bottom: 24px;
+    }
+
+    .protocol-stat {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .protocol-stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--secondary);
+    }
+
+    .protocol-stat-label {
+      font-size: 14px;
+      color: var(--gray);
+    }
+
+    /* How It Works */
+    .how-it-works {
+      background: linear-gradient(180deg, var(--darker) 0%, var(--dark) 100%);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 40px;
+    }
+
+    .tab {
+      padding: 12px 24px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--gray);
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .tab:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .tab.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+    }
+
+    .step {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      padding: 32px;
+      position: relative;
+    }
+
+    .step-number {
+      position: absolute;
+      top: -12px;
+      left: 24px;
+      width: 32px;
+      height: 32px;
+      background: var(--primary);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .step h4 {
+      font-size: 18px;
+      margin-bottom: 8px;
+      margin-top: 8px;
+    }
+
+    .step p {
+      font-size: 14px;
+      color: var(--gray);
+    }
+
+    /* Comparison Table */
+    .comparison-section {
+      text-align: center;
+    }
+
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 40px;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+      padding: 20px 24px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .comparison-table th {
+      background: rgba(255, 255, 255, 0.03);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--gray);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .comparison-table td {
+      font-size: 16px;
+    }
+
+    .comparison-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .comparison-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .comparison-table .highlight {
+      color: var(--secondary);
+      font-weight: 600;
+    }
+
+    .comparison-table .dim {
+      color: var(--gray);
+    }
+
+    .check {
+      color: var(--secondary);
+      font-size: 18px;
+    }
+
+    /* Use Cases */
+    .use-cases {
+      background: linear-gradient(180deg, var(--dark) 0%, var(--darker) 100%);
+    }
+
+    .use-cases-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .use-case-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      padding: 32px;
+      transition: all 0.3s;
+    }
+
+    .use-case-card:hover {
+      border-color: var(--primary);
+      transform: translateY(-2px);
+    }
+
+    .use-case-icon {
+      font-size: 40px;
+      margin-bottom: 20px;
+    }
+
+    .use-case-card h3 {
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+
+    .use-case-card p {
+      font-size: 15px;
+      color: var(--gray);
+      margin-bottom: 20px;
+    }
+
+    .use-case-tag {
+      display: inline-block;
+      padding: 6px 12px;
+      background: rgba(99, 102, 241, 0.1);
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--primary);
+      font-weight: 500;
+    }
+
+    /* LP Section */
+    .lp-section {
+      text-align: center;
+    }
+
+    .lp-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      margin-top: 40px;
+    }
+
+    .lp-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 32px;
+      text-align: center;
+    }
+
+    .lp-card h4 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    .lp-apy {
+      font-size: 48px;
+      font-weight: 800;
+      color: var(--secondary);
+      margin: 16px 0;
+    }
+
+    .lp-risk {
+      font-size: 14px;
+      color: var(--gray);
+    }
+
+    /* Roadmap */
+    .roadmap {
+      background: linear-gradient(180deg, var(--darker) 0%, var(--dark) 100%);
+    }
+
+    .roadmap-timeline {
+      display: flex;
+      justify-content: space-between;
+      position: relative;
+      margin-top: 60px;
+    }
+
+    .roadmap-timeline::before {
+      content: '';
+      position: absolute;
+      top: 24px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .roadmap-item {
+      flex: 1;
+      text-align: center;
+      position: relative;
+    }
+
+    .roadmap-dot {
+      width: 48px;
+      height: 48px;
+      background: var(--dark);
+      border: 2px solid var(--primary);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 14px;
+      font-weight: 600;
+      position: relative;
+      z-index: 1;
+    }
+
+    .roadmap-item.completed .roadmap-dot {
+      background: var(--primary);
+    }
+
+    .roadmap-item h4 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    .roadmap-item p {
+      font-size: 14px;
+      color: var(--gray);
+    }
+
+    /* CTA Section */
+    .cta {
+      text-align: center;
+      padding: 120px 40px;
+      background:
+        radial-gradient(ellipse at 50% 100%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+        linear-gradient(180deg, var(--dark) 0%, var(--darker) 100%);
+    }
+
+    .cta h2 {
+      font-size: clamp(32px, 5vw, 48px);
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+
+    .cta p {
+      font-size: 18px;
+      color: var(--gray);
+      margin-bottom: 40px;
+    }
+
+    .cta-buttons {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 60px;
+    }
+
+    /* Footer */
+    footer {
+      padding: 40px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      text-align: center;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 32px;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .footer-links a {
+      color: var(--gray);
+      text-decoration: none;
+      font-size: 15px;
+      transition: color 0.3s;
+    }
+
+    .footer-links a:hover {
+      color: var(--light);
+    }
+
+    .footer-copyright {
+      font-size: 14px;
+      color: var(--gray-dark);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      nav {
+        padding: 16px 20px;
+      }
+
+      .nav-links {
+        display: none;
+      }
+
+      .hero {
+        padding: 100px 20px 60px;
+      }
+
+      .hero-stats {
+        flex-direction: column;
+        gap: 24px;
+      }
+
+      .hero-buttons {
+        flex-direction: column;
+        width: 100%;
+        max-width: 300px;
+      }
+
+      .btn {
+        width: 100%;
+        justify-content: center;
+      }
+
+      section {
+        padding: 80px 20px;
+      }
+
+      .roadmap-timeline {
+        flex-direction: column;
+        gap: 40px;
+      }
+
+      .roadmap-timeline::before {
+        display: none;
+      }
+
+      .comparison-table {
+        font-size: 14px;
+      }
+
+      .comparison-table th,
+      .comparison-table td {
+        padding: 12px 16px;
+      }
+
+      .cta-buttons {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .tabs {
+        flex-wrap: wrap;
+      }
+    }
+
+    /* Animations */
+    @media (prefers-reduced-motion: no-preference) {
+      .fade-in {
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 0.6s ease, transform 0.6s ease;
+      }
+
+      .fade-in.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav>
+    <a href="#" class="logo">Σ Sigma</a>
+    <div class="nav-links">
+      <a href="#protocols">Protocols</a>
+      <a href="#how-it-works">How It Works</a>
+      <a href="#lp">Earn</a>
+      <a href="https://github.com/psyto/sigma" target="_blank">GitHub</a>
+      <a href="#" class="btn btn-primary">Launch App</a>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-badge">
+      <span class="dot"></span>
+      Live on Solana Devnet
+    </div>
+    <h1>
+      Trade Volatility.<br>
+      Hedge Funding.<br>
+      <span class="gradient">Access Exotic Options.</span>
+    </h1>
+    <p>
+      Advanced derivatives for Solana — institutional-grade financial instruments at 60% lower cost than traditional alternatives.
+    </p>
+    <div class="hero-buttons">
+      <a href="#" class="btn btn-primary">Launch App →</a>
+      <a href="#protocols" class="btn btn-secondary">Learn More</a>
+    </div>
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="hero-stat-value">3</div>
+        <div class="hero-stat-label">Core Protocols</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-value">60%</div>
+        <div class="hero-stat-label">Cheaper Premiums</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-value">15-40%</div>
+        <div class="hero-stat-label">Target LP APY</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Problem Section -->
+  <section class="problem">
+    <span class="section-label">The Problem</span>
+    <h2 class="section-title">DeFi traders lack sophisticated hedging tools</h2>
+    <p class="section-subtitle">Wall Street has used these instruments for decades. Why can't crypto?</p>
+
+    <div class="problem-grid">
+      <div class="problem-card fade-in">
+        <div class="problem-icon">📈</div>
+        <h3>Can't trade volatility directly</h3>
+        <p>Straddles cost 8-12% premium. Most traders can't afford pure volatility exposure.</p>
+      </div>
+      <div class="problem-card fade-in">
+        <div class="problem-icon">💸</div>
+        <h3>Unpredictable funding costs</h3>
+        <p>Perp traders lose 5-10% annually to funding rate swings. Impossible to budget.</p>
+      </div>
+      <div class="problem-card fade-in">
+        <div class="problem-icon">🎰</div>
+        <h3>Options are too expensive</h3>
+        <p>Vanilla options price in scenarios you don't need. Paying for protection you'll never use.</p>
+      </div>
+      <div class="problem-card fade-in">
+        <div class="problem-icon">🏦</div>
+        <h3>No on-chain alternatives</h3>
+        <p>These instruments exist in TradFi but not in DeFi. Until now.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Protocols Section -->
+  <section id="protocols">
+    <span class="section-label">The Solution</span>
+    <h2 class="section-title">Three protocols, one unified suite</h2>
+    <p class="section-subtitle">Everything you need for sophisticated derivatives trading on Solana.</p>
+
+    <div class="protocols-grid">
+      <div class="protocol-card volswap fade-in">
+        <span class="protocol-badge volswap">VolSwap</span>
+        <h3>Variance Swaps</h3>
+        <p>Trade realized volatility directly without taking a directional bet. Profit from market movements regardless of direction.</p>
+        <div class="protocol-stat">
+          <span class="protocol-stat-value">2-4%</span>
+          <span class="protocol-stat-label">cost vs 8-12% for straddles</span>
+        </div>
+      </div>
+
+      <div class="protocol-card funding fade-in">
+        <span class="protocol-badge funding">FundingSwap</span>
+        <h3>Funding Rate Swaps</h3>
+        <p>Exchange floating funding rates for fixed rates. Turn unpredictable costs into predictable budgets.</p>
+        <div class="protocol-stat">
+          <span class="protocol-stat-value">Lock in</span>
+          <span class="protocol-stat-label">your funding rate</span>
+        </div>
+      </div>
+
+      <div class="protocol-card exotic fade-in">
+        <span class="protocol-badge exotic">ExoticVault</span>
+        <h3>Exotic Options</h3>
+        <p>Asian and barrier options with customizable payoffs. Trade features for premium — pay only for what you need.</p>
+        <div class="protocol-stat">
+          <span class="protocol-stat-value">40-60%</span>
+          <span class="protocol-stat-label">cheaper than vanilla options</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section id="how-it-works" class="how-it-works">
+    <span class="section-label">How It Works</span>
+    <h2 class="section-title">Simple for users, powerful under the hood</h2>
+    <p class="section-subtitle">Whether you're trading or providing liquidity, getting started is easy.</p>
+
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('traders')">For Traders</button>
+      <button class="tab" onclick="showTab('lps')">For LPs</button>
+    </div>
+
+    <div id="traders" class="tab-content active">
+      <div class="steps">
+        <div class="step fade-in">
+          <div class="step-number">1</div>
+          <h4>Connect Wallet</h4>
+          <p>Connect your Phantom or Solflare wallet to get started.</p>
+        </div>
+        <div class="step fade-in">
+          <div class="step-number">2</div>
+          <h4>Choose Your View</h4>
+          <p>Select the protocol that matches your thesis — volatility, funding, or options.</p>
+        </div>
+        <div class="step fade-in">
+          <div class="step-number">3</div>
+          <h4>Open Position</h4>
+          <p>Deposit USDC and configure your position parameters.</p>
+        </div>
+        <div class="step fade-in">
+          <div class="step-number">4</div>
+          <h4>Settle or Exit</h4>
+          <p>Wait for settlement at expiry or exit early with a small fee.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="lps" class="tab-content">
+      <div class="steps">
+        <div class="step fade-in">
+          <div class="step-number">1</div>
+          <h4>Choose Pool</h4>
+          <p>Select from VolSwap, FundingSwap, or ExoticVault pools based on your risk appetite.</p>
+        </div>
+        <div class="step fade-in">
+          <div class="step-number">2</div>
+          <h4>Deposit USDC</h4>
+          <p>Provide liquidity to earn fees from traders using the protocol.</p>
+        </div>
+        <div class="step fade-in">
+          <div class="step-number">3</div>
+          <h4>Earn Fees</h4>
+          <p>Receive 15-40% APY from trading fees and taking the other side of positions.</p>
+        </div>
+        <div class="step fade-in">
+          <div class="step-number">4</div>
+          <h4>Withdraw Anytime</h4>
+          <p>Exit when you want, subject to utilization limits that protect all LPs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison Section -->
+  <section class="comparison-section">
+    <span class="section-label">Why Sigma</span>
+    <h2 class="section-title">The Sigma advantage</h2>
+    <p class="section-subtitle">See how we compare to traditional alternatives.</p>
+
+    <table class="comparison-table fade-in">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>Traditional</th>
+          <th>Sigma</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Volatility Trading</td>
+          <td class="dim">Straddles (8-12%)</td>
+          <td class="highlight">Variance Swaps (2-4%)</td>
+          <td class="check">✓</td>
+        </tr>
+        <tr>
+          <td>Funding Rate Hedge</td>
+          <td class="dim">Not available</td>
+          <td class="highlight">FundingSwap</td>
+          <td class="check">✓</td>
+        </tr>
+        <tr>
+          <td>Crash Protection</td>
+          <td class="dim">Puts (5-6%)</td>
+          <td class="highlight">Barrier Puts (1.5-2%)</td>
+          <td class="check">✓</td>
+        </tr>
+        <tr>
+          <td>Settlement</td>
+          <td class="dim">Centralized</td>
+          <td class="highlight">Fully on-chain</td>
+          <td class="check">✓</td>
+        </tr>
+        <tr>
+          <td>Transparency</td>
+          <td class="dim">Opaque</td>
+          <td class="highlight">Open source</td>
+          <td class="check">✓</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Use Cases -->
+  <section class="use-cases">
+    <span class="section-label">Use Cases</span>
+    <h2 class="section-title">Built for real traders</h2>
+    <p class="section-subtitle">See how different traders use Sigma to achieve their goals.</p>
+
+    <div class="use-cases-grid">
+      <div class="use-case-card fade-in">
+        <div class="use-case-icon">📊</div>
+        <h3>Event Trading</h3>
+        <p>ETF decision coming? Protocol upgrade? Trade the volatility without predicting direction.</p>
+        <span class="use-case-tag">→ VolSwap</span>
+      </div>
+      <div class="use-case-card fade-in">
+        <div class="use-case-icon">🔄</div>
+        <h3>Basis Trading</h3>
+        <p>Running spot + short perp? Lock in your funding yield for guaranteed returns.</p>
+        <span class="use-case-tag">→ FundingSwap</span>
+      </div>
+      <div class="use-case-card fade-in">
+        <div class="use-case-icon">🛡️</div>
+        <h3>Portfolio Hedging</h3>
+        <p>Long-term holder worried about crashes? Get 60% cheaper downside protection.</p>
+        <span class="use-case-tag">→ ExoticVault</span>
+      </div>
+      <div class="use-case-card fade-in">
+        <div class="use-case-icon">⚡</div>
+        <h3>Perp Trading</h3>
+        <p>Tired of unpredictable funding eating your profits? Lock in fixed rates.</p>
+        <span class="use-case-tag">→ FundingSwap</span>
+      </div>
+      <div class="use-case-card fade-in">
+        <div class="use-case-icon">🏪</div>
+        <h3>Market Making</h3>
+        <p>Natural short gamma from providing liquidity? Hedge with variance swaps.</p>
+        <span class="use-case-tag">→ VolSwap</span>
+      </div>
+      <div class="use-case-card fade-in">
+        <div class="use-case-icon">💰</div>
+        <h3>Yield Farming</h3>
+        <p>Looking for better returns than lending? Become the house with LP pools.</p>
+        <span class="use-case-tag">→ All Pools</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- LP Section -->
+  <section id="lp" class="lp-section">
+    <span class="section-label">For Liquidity Providers</span>
+    <h2 class="section-title">Be the house. Earn the edge.</h2>
+    <p class="section-subtitle">Provide liquidity, take the other side of trades, and earn competitive yields.</p>
+
+    <div class="lp-grid">
+      <div class="lp-card fade-in">
+        <h4 style="color: var(--volswap);">VolSwap Pool</h4>
+        <div class="lp-apy">15-35%</div>
+        <p class="lp-risk">Medium Risk • Variance Exposure</p>
+      </div>
+      <div class="lp-card fade-in">
+        <h4 style="color: var(--funding);">FundingSwap Pool</h4>
+        <div class="lp-apy">10-25%</div>
+        <p class="lp-risk">Lower Risk • Rate Exposure</p>
+      </div>
+      <div class="lp-card fade-in">
+        <h4 style="color: var(--exotic);">ExoticVault Pool</h4>
+        <div class="lp-apy">20-40%</div>
+        <p class="lp-risk">Higher Risk • Option Writing</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Roadmap -->
+  <section class="roadmap">
+    <span class="section-label">Roadmap</span>
+    <h2 class="section-title">Building in public</h2>
+    <p class="section-subtitle">Our journey to becoming the derivatives layer of Solana DeFi.</p>
+
+    <div class="roadmap-timeline">
+      <div class="roadmap-item completed">
+        <div class="roadmap-dot">✓</div>
+        <h4>Q1 2025</h4>
+        <p>Devnet Launch<br>Core Protocols</p>
+      </div>
+      <div class="roadmap-item">
+        <div class="roadmap-dot">Q2</div>
+        <h4>Q2 2025</h4>
+        <p>Mainnet Beta<br>LP Incentives</p>
+      </div>
+      <div class="roadmap-item">
+        <div class="roadmap-dot">Q3</div>
+        <h4>Q3 2025</h4>
+        <p>Full Launch<br>More Assets</p>
+      </div>
+      <div class="roadmap-item">
+        <div class="roadmap-dot">Q4</div>
+        <h4>Q4 2025</h4>
+        <p>Governance<br>V2 Features</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section class="cta">
+    <h2>Ready to trade smarter?</h2>
+    <p>Join the future of DeFi derivatives on Solana.</p>
+    <div class="cta-buttons">
+      <a href="#" class="btn btn-primary">Launch App →</a>
+      <a href="https://github.com/psyto/sigma" target="_blank" class="btn btn-secondary">View on GitHub</a>
+    </div>
+
+    <div class="footer-links">
+      <a href="https://twitter.com" target="_blank">Twitter</a>
+      <a href="https://discord.com" target="_blank">Discord</a>
+      <a href="#" target="_blank">Docs</a>
+      <a href="https://github.com/psyto/sigma" target="_blank">GitHub</a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <p class="footer-copyright">© 2025 Sigma Protocol. Built on Solana.</p>
+  </footer>
+
+  <script>
+    // Tab functionality
+    function showTab(tabId) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+      document.querySelector(`[onclick="showTab('${tabId}')"]`).classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+    }
+
+    // Fade in on scroll
+    const observerOptions = {
+      threshold: 0.1,
+      rootMargin: '0px 0px -50px 0px'
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, observerOptions);
+
+    document.querySelectorAll('.fade-in').forEach(el => {
+      observer.observe(el);
+    });
+
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function(e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
