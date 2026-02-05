@@ -103,4 +103,55 @@ pub enum OracleError {
 
     #[msg("Division by zero")]
     DivisionByZero,
+
+    // ============================================================================
+    // Volatility Index Errors
+    // ============================================================================
+    #[msg("Invalid variance tracker")]
+    InvalidVarianceTracker,
+
+    #[msg("Invalid implied weight (must be 0-10000)")]
+    InvalidImpliedWeight,
+
+    // ============================================================================
+    // CEX Funding Feed Errors
+    // ============================================================================
+    #[msg("Too many exchange sources (max 8)")]
+    TooManySources,
+
+    #[msg("Exchange not found in feed")]
+    ExchangeNotFound,
+
+    #[msg("Exchange already exists in feed")]
+    ExchangeAlreadyExists,
+
+    // ============================================================================
+    // Secondary Market Errors
+    // ============================================================================
+    #[msg("Position is inactive")]
+    PositionInactive,
+
+    #[msg("Position has expired")]
+    PositionExpired,
+
+    #[msg("Position is not listed for sale")]
+    NotListed,
+
+    #[msg("Position is already listed")]
+    AlreadyListed,
+
+    #[msg("Market is inactive")]
+    MarketInactive,
+
+    #[msg("Protocol mismatch")]
+    ProtocolMismatch,
+
+    #[msg("Price below minimum")]
+    PriceBelowMinimum,
+
+    #[msg("Insufficient funds")]
+    InsufficientFunds,
+
+    #[msg("Listing has expired")]
+    ListingExpired,
 }

@@ -662,3 +662,508 @@ impl VarianceTracker {
         (variance as f64).sqrt() as u64
     }
 }
+
+// ============================================================================
+// Sigma Volatility Index (SVI)
+// ============================================================================
+
+/// Sigma Volatility Index - comparable to Volmex SVIV
+/// Tracks implied and realized volatility for an asset
+#[account]
+#[derive(InitSpace)]
+pub struct VolatilityIndex {
+    /// Authority that can manage this index
+    pub authority: Pubkey,
+
+    /// Asset symbol (e.g., "SOL", "BTC", "ETH")
+    #[max_len(16)]
+    pub asset_symbol: String,
+
+    /// Index name (e.g., "SVI-SOL-14D")
+    #[max_len(32)]
+    pub index_name: String,
+
+    /// Associated price feed
+    pub price_feed: Pubkey,
+
+    /// Associated variance tracker
+    pub variance_tracker: Pubkey,
+
+    /// Duration in days (14 or 30 typically)
+    pub duration_days: u8,
+
+    /// Current index value (annualized vol in bps, e.g., 4500 = 45%)
+    pub current_value: u64,
+
+    /// 24h high
+    pub high_24h: u64,
+
+    /// 24h low
+    pub low_24h: u64,
+
+    /// 24h change in bps (can be negative)
+    pub change_24h_bps: i64,
+
+    /// 7-day average
+    pub avg_7d: u64,
+
+    /// 30-day average
+    pub avg_30d: u64,
+
+    /// Realized volatility component (weight in calculation)
+    pub realized_vol: u64,
+
+    /// Implied volatility component (from options if available)
+    pub implied_vol: u64,
+
+    /// Implied vol weight (0-10000, rest is realized)
+    pub implied_weight: u16,
+
+    /// Historical index values (hourly for 7 days = 168)
+    #[max_len(168)]
+    pub index_history: Vec<VolatilityIndexSample>,
+
+    /// Last update timestamp
+    pub last_update: i64,
+
+    /// Index creation time
+    pub created_at: i64,
+
+    /// Whether index is active
+    pub is_active: bool,
+
+    pub bump: u8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace)]
+pub struct VolatilityIndexSample {
+    /// Index value (annualized vol in bps)
+    pub value: u64,
+    /// Unix timestamp
+    pub timestamp: i64,
+}
+
+impl VolatilityIndex {
+    /// Calculate the current index value from realized and implied vol
+    pub fn calculate_index_value(&self) -> u64 {
+        let implied_component = (self.implied_vol as u128 * self.implied_weight as u128) / 10000;
+        let realized_component = (self.realized_vol as u128 * (10000 - self.implied_weight as u128)) / 10000;
+        (implied_component + realized_component) as u64
+    }
+
+    /// Calculate percentile rank (where current value sits in history)
+    pub fn calculate_percentile(&self) -> u8 {
+        if self.index_history.is_empty() {
+            return 50;
+        }
+
+        let count_below = self.index_history
+            .iter()
+            .filter(|s| s.value < self.current_value)
+            .count();
+
+        ((count_below * 100) / self.index_history.len()) as u8
+    }
+
+    /// Get volatility regime classification
+    pub fn get_volatility_regime(&self) -> VolatilityRegime {
+        match self.current_value {
+            0..=2000 => VolatilityRegime::VeryLow,      // <20%
+            2001..=3500 => VolatilityRegime::Low,       // 20-35%
+            3501..=5000 => VolatilityRegime::Normal,    // 35-50%
+            5001..=7500 => VolatilityRegime::High,      // 50-75%
+            _ => VolatilityRegime::Extreme,             // >75%
+        }
+    }
+
+    /// Check if volatility is mean-reverting (potential short opportunity)
+    pub fn is_elevated(&self) -> bool {
+        self.current_value > self.avg_30d + (self.avg_30d / 4) // 25% above 30d avg
+    }
+
+    /// Check if volatility is depressed (potential long opportunity)
+    pub fn is_depressed(&self) -> bool {
+        self.current_value < self.avg_30d.saturating_sub(self.avg_30d / 4) // 25% below 30d avg
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+pub enum VolatilityRegime {
+    VeryLow,
+    Low,
+    Normal,
+    High,
+    Extreme,
+}
+
+// ============================================================================
+// CEX Funding Rate Feed
+// ============================================================================
+
+/// CEX Funding Rate aggregator - combines funding rates from multiple exchanges
+#[account]
+#[derive(InitSpace)]
+pub struct CexFundingFeed {
+    /// Authority that can manage this feed
+    pub authority: Pubkey,
+
+    /// Market symbol (e.g., "SOL-PERP")
+    #[max_len(16)]
+    pub market_symbol: String,
+
+    /// Exchange sources for funding rates
+    #[max_len(8)]
+    pub exchange_sources: Vec<ExchangeFundingSource>,
+
+    /// Aggregated current funding rate (bps)
+    pub aggregated_rate_bps: i64,
+
+    /// Aggregation method
+    pub aggregation_method: FundingAggregationMethod,
+
+    /// Total open interest across exchanges (USD, scaled by 1e6)
+    pub total_open_interest: u64,
+
+    /// Open interest weighted rate
+    pub oi_weighted_rate_bps: i64,
+
+    /// Historical aggregated rates
+    #[max_len(168)]
+    pub rate_history: Vec<CexFundingRateSample>,
+
+    /// Last update timestamp
+    pub last_update: i64,
+
+    /// Whether feed is active
+    pub is_active: bool,
+
+    pub bump: u8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace)]
+pub struct ExchangeFundingSource {
+    /// Exchange identifier
+    pub exchange: CexExchange,
+    /// Current funding rate (bps)
+    pub current_rate_bps: i64,
+    /// Next funding time
+    pub next_funding_time: i64,
+    /// Funding interval (seconds)
+    pub funding_interval: u64,
+    /// Open interest (USD, scaled by 1e6)
+    pub open_interest: u64,
+    /// Last update timestamp
+    pub last_update: i64,
+    /// Whether source is active
+    pub is_active: bool,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+pub enum CexExchange {
+    Binance,
+    Bybit,
+    OKX,
+    Deribit,
+    Bitget,
+    Kraken,
+    Custom,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+pub enum FundingAggregationMethod {
+    /// Simple average
+    Mean,
+    /// Median value
+    Median,
+    /// Weighted by open interest
+    OpenInterestWeighted,
+    /// Use the exchange with highest OI
+    HighestOI,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace)]
+pub struct CexFundingRateSample {
+    /// Aggregated rate (bps)
+    pub rate_bps: i64,
+    /// OI-weighted rate (bps)
+    pub oi_weighted_rate_bps: i64,
+    /// Total OI at sample time
+    pub total_oi: u64,
+    /// Unix timestamp
+    pub timestamp: i64,
+}
+
+impl CexFundingFeed {
+    /// Calculate aggregated funding rate from exchange sources
+    pub fn calculate_aggregated_rate(&self) -> i64 {
+        let active_sources: Vec<&ExchangeFundingSource> = self
+            .exchange_sources
+            .iter()
+            .filter(|s| s.is_active)
+            .collect();
+
+        if active_sources.is_empty() {
+            return 0;
+        }
+
+        match self.aggregation_method {
+            FundingAggregationMethod::Mean => {
+                let sum: i128 = active_sources.iter().map(|s| s.current_rate_bps as i128).sum();
+                (sum / active_sources.len() as i128) as i64
+            }
+            FundingAggregationMethod::Median => {
+                let mut rates: Vec<i64> = active_sources.iter().map(|s| s.current_rate_bps).collect();
+                rates.sort();
+                if rates.len() % 2 == 0 {
+                    (rates[rates.len() / 2 - 1] + rates[rates.len() / 2]) / 2
+                } else {
+                    rates[rates.len() / 2]
+                }
+            }
+            FundingAggregationMethod::OpenInterestWeighted => {
+                let weighted_sum: i128 = active_sources
+                    .iter()
+                    .map(|s| s.current_rate_bps as i128 * s.open_interest as i128)
+                    .sum();
+                let oi_sum: u128 = active_sources.iter().map(|s| s.open_interest as u128).sum();
+                if oi_sum == 0 {
+                    return 0;
+                }
+                (weighted_sum / oi_sum as i128) as i64
+            }
+            FundingAggregationMethod::HighestOI => {
+                active_sources
+                    .iter()
+                    .max_by_key(|s| s.open_interest)
+                    .map(|s| s.current_rate_bps)
+                    .unwrap_or(0)
+            }
+        }
+    }
+
+    /// Calculate annualized funding rate
+    pub fn calculate_annualized_rate(&self) -> i64 {
+        // Assuming 8-hour funding intervals (3 per day)
+        self.aggregated_rate_bps * 3 * 365
+    }
+
+    /// Get the exchange with highest funding rate
+    pub fn get_highest_rate_exchange(&self) -> Option<(CexExchange, i64)> {
+        self.exchange_sources
+            .iter()
+            .filter(|s| s.is_active)
+            .max_by_key(|s| s.current_rate_bps)
+            .map(|s| (s.exchange, s.current_rate_bps))
+    }
+
+    /// Get the exchange with lowest funding rate
+    pub fn get_lowest_rate_exchange(&self) -> Option<(CexExchange, i64)> {
+        self.exchange_sources
+            .iter()
+            .filter(|s| s.is_active)
+            .min_by_key(|s| s.current_rate_bps)
+            .map(|s| (s.exchange, s.current_rate_bps))
+    }
+
+    /// Calculate funding rate spread (max - min)
+    pub fn calculate_rate_spread(&self) -> i64 {
+        let active_rates: Vec<i64> = self
+            .exchange_sources
+            .iter()
+            .filter(|s| s.is_active)
+            .map(|s| s.current_rate_bps)
+            .collect();
+
+        if active_rates.is_empty() {
+            return 0;
+        }
+
+        let max = active_rates.iter().max().unwrap_or(&0);
+        let min = active_rates.iter().min().unwrap_or(&0);
+        max - min
+    }
+}
+
+// ============================================================================
+// Secondary Market - Position NFT
+// ============================================================================
+
+/// Position token representing a tradeable position in any Sigma protocol
+#[account]
+#[derive(InitSpace)]
+pub struct PositionToken {
+    /// Owner of this position token
+    pub owner: Pubkey,
+
+    /// Protocol type
+    pub protocol: SigmaProtocol,
+
+    /// Original position account
+    pub position_account: Pubkey,
+
+    /// Position details hash (for verification)
+    pub position_hash: [u8; 32],
+
+    /// Notional value (USD, scaled by 1e6)
+    pub notional: u64,
+
+    /// Current mark-to-market value (USD, scaled by 1e6)
+    pub mark_to_market: i64,
+
+    /// Expiry timestamp
+    pub expiry: i64,
+
+    /// Position direction
+    pub direction: PositionDirection,
+
+    /// Strike/fixed rate (meaning depends on protocol)
+    pub strike: u64,
+
+    /// Creation timestamp
+    pub created_at: i64,
+
+    /// Whether position is listed for sale
+    pub is_listed: bool,
+
+    /// Listing price (if listed, in USDC scaled by 1e6)
+    pub listing_price: u64,
+
+    /// Minimum acceptable price for auction
+    pub min_price: u64,
+
+    /// Whether this position token is valid/active
+    pub is_active: bool,
+
+    pub bump: u8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+pub enum SigmaProtocol {
+    VolSwap,
+    FundingSwap,
+    ExoticVault,
+}
+
+impl SigmaProtocol {
+    /// Get bytes for use in PDA seeds
+    pub fn seed_bytes(&self) -> [u8; 16] {
+        match self {
+            SigmaProtocol::VolSwap => *b"volswap_________",
+            SigmaProtocol::FundingSwap => *b"fundingswap_____",
+            SigmaProtocol::ExoticVault => *b"exoticvault_____",
+        }
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+pub enum PositionDirection {
+    Long,
+    Short,
+}
+
+impl PositionToken {
+    /// Check if position has expired
+    pub fn is_expired(&self, current_time: i64) -> bool {
+        current_time >= self.expiry
+    }
+
+    /// Calculate time to expiry
+    pub fn time_to_expiry(&self, current_time: i64) -> i64 {
+        if current_time >= self.expiry {
+            0
+        } else {
+            self.expiry - current_time
+        }
+    }
+
+    /// Calculate implied discount/premium based on listing vs MTM
+    pub fn calculate_listing_discount(&self) -> i64 {
+        if self.mark_to_market == 0 {
+            return 0;
+        }
+        // Positive = discount, Negative = premium
+        ((self.mark_to_market - self.listing_price as i64) * 10000) / self.mark_to_market
+    }
+}
+
+/// Secondary market orderbook for position tokens
+#[account]
+#[derive(InitSpace)]
+pub struct SecondaryMarket {
+    /// Authority
+    pub authority: Pubkey,
+
+    /// Protocol this market serves
+    pub protocol: SigmaProtocol,
+
+    /// Active listings
+    #[max_len(100)]
+    pub listings: Vec<MarketListing>,
+
+    /// Total volume traded (USD, scaled by 1e6)
+    pub total_volume: u64,
+
+    /// Total trades executed
+    pub total_trades: u64,
+
+    /// Fee rate (bps)
+    pub fee_rate_bps: u16,
+
+    /// Fee recipient
+    pub fee_recipient: Pubkey,
+
+    /// Whether market is active
+    pub is_active: bool,
+
+    pub bump: u8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace)]
+pub struct MarketListing {
+    /// Position token account
+    pub position_token: Pubkey,
+    /// Seller
+    pub seller: Pubkey,
+    /// Asking price (USDC, scaled by 1e6)
+    pub price: u64,
+    /// Listing timestamp
+    pub listed_at: i64,
+    /// Expiry of listing (0 = no expiry)
+    pub listing_expiry: i64,
+    /// Whether listing is active
+    pub is_active: bool,
+}
+
+impl SecondaryMarket {
+    /// Get active listings sorted by price (lowest first)
+    pub fn get_sorted_listings(&self) -> Vec<&MarketListing> {
+        let mut active: Vec<&MarketListing> = self
+            .listings
+            .iter()
+            .filter(|l| l.is_active)
+            .collect();
+        active.sort_by_key(|l| l.price);
+        active
+    }
+
+    /// Calculate average listing price
+    pub fn calculate_avg_price(&self) -> u64 {
+        let active: Vec<&MarketListing> = self
+            .listings
+            .iter()
+            .filter(|l| l.is_active)
+            .collect();
+
+        if active.is_empty() {
+            return 0;
+        }
+
+        let sum: u128 = active.iter().map(|l| l.price as u128).sum();
+        (sum / active.len() as u128) as u64
+    }
+
+    /// Get number of active listings
+    pub fn active_listing_count(&self) -> usize {
+        self.listings.iter().filter(|l| l.is_active).count()
+    }
+}

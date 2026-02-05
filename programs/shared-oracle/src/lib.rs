@@ -9,6 +9,13 @@ pub mod instructions;
 use state::*;
 use errors::OracleError;
 
+// Re-export important types for external use
+pub use state::{
+    VolatilityIndex, VolatilityIndexSample, VolatilityRegime,
+    CexFundingFeed, ExchangeFundingSource, CexExchange, FundingAggregationMethod, CexFundingRateSample,
+    PositionToken, SecondaryMarket, MarketListing, SigmaProtocol, PositionDirection,
+};
+
 /// Shared Oracle Program for Sigma Protocol
 /// Provides price feeds, TWAP calculations, variance data, and funding rate feeds
 /// for VolSwap, FundingSwap, and ExoticVault protocols.
@@ -143,6 +150,386 @@ pub mod shared_oracle {
     /// Start new variance epoch
     pub fn start_new_variance_epoch(ctx: Context<StartNewVarianceEpoch>) -> Result<()> {
         instructions::variance::start_new_variance_epoch(ctx)
+    }
+
+    // ============================================================================
+    // Volatility Index Instructions (SVI)
+    // ============================================================================
+
+    /// Initialize a new volatility index (e.g., SVI-SOL-14D)
+    pub fn initialize_volatility_index(
+        ctx: Context<InitializeVolatilityIndex>,
+        index_name: String,
+        duration_days: u8,
+        implied_weight: u16,
+    ) -> Result<()> {
+        let index = &mut ctx.accounts.volatility_index;
+        let clock = Clock::get()?;
+
+        index.authority = ctx.accounts.authority.key();
+        index.asset_symbol = ctx.accounts.price_feed.asset_symbol.clone();
+        index.index_name = index_name;
+        index.price_feed = ctx.accounts.price_feed.key();
+        index.variance_tracker = ctx.accounts.variance_tracker.key();
+        index.duration_days = duration_days;
+        index.current_value = 0;
+        index.high_24h = 0;
+        index.low_24h = u64::MAX;
+        index.change_24h_bps = 0;
+        index.avg_7d = 0;
+        index.avg_30d = 0;
+        index.realized_vol = ctx.accounts.variance_tracker.current_epoch_variance;
+        index.implied_vol = 0;
+        index.implied_weight = implied_weight;
+        index.index_history = Vec::new();
+        index.last_update = clock.unix_timestamp;
+        index.created_at = clock.unix_timestamp;
+        index.is_active = true;
+        index.bump = ctx.bumps.volatility_index;
+
+        Ok(())
+    }
+
+    /// Update volatility index with latest data
+    pub fn update_volatility_index(ctx: Context<UpdateVolatilityIndex>) -> Result<()> {
+        let index = &mut ctx.accounts.volatility_index;
+        let variance_tracker = &ctx.accounts.variance_tracker;
+        let clock = Clock::get()?;
+
+        // Update realized volatility from variance tracker
+        index.realized_vol = variance_tracker.current_epoch_variance;
+
+        // Calculate new index value
+        let new_value = index.calculate_index_value();
+
+        // Update 24h high/low
+        if new_value > index.high_24h {
+            index.high_24h = new_value;
+        }
+        if new_value < index.low_24h {
+            index.low_24h = new_value;
+        }
+
+        // Calculate 24h change
+        let samples_24h_ago: Vec<&VolatilityIndexSample> = index.index_history
+            .iter()
+            .filter(|s| clock.unix_timestamp - s.timestamp <= 86400)
+            .collect();
+
+        if let Some(oldest) = samples_24h_ago.first() {
+            if oldest.value > 0 {
+                index.change_24h_bps = ((new_value as i64 - oldest.value as i64) * 10000) / oldest.value as i64;
+            }
+        }
+
+        // Update averages
+        let samples_7d: Vec<u64> = index.index_history
+            .iter()
+            .filter(|s| clock.unix_timestamp - s.timestamp <= 7 * 86400)
+            .map(|s| s.value)
+            .collect();
+
+        if !samples_7d.is_empty() {
+            index.avg_7d = samples_7d.iter().sum::<u64>() / samples_7d.len() as u64;
+        }
+
+        let samples_30d: Vec<u64> = index.index_history
+            .iter()
+            .filter(|s| clock.unix_timestamp - s.timestamp <= 30 * 86400)
+            .map(|s| s.value)
+            .collect();
+
+        if !samples_30d.is_empty() {
+            index.avg_30d = samples_30d.iter().sum::<u64>() / samples_30d.len() as u64;
+        }
+
+        // Add to history
+        index.index_history.push(VolatilityIndexSample {
+            value: new_value,
+            timestamp: clock.unix_timestamp,
+        });
+
+        // Trim history to max 168 samples (7 days hourly)
+        if index.index_history.len() > 168 {
+            index.index_history.remove(0);
+        }
+
+        index.current_value = new_value;
+        index.last_update = clock.unix_timestamp;
+
+        Ok(())
+    }
+
+    /// Set implied volatility (from external options data)
+    pub fn set_implied_volatility(
+        ctx: Context<SetImpliedVolatility>,
+        implied_vol: u64,
+    ) -> Result<()> {
+        let index = &mut ctx.accounts.volatility_index;
+        index.implied_vol = implied_vol;
+        Ok(())
+    }
+
+    // ============================================================================
+    // CEX Funding Rate Instructions
+    // ============================================================================
+
+    /// Initialize CEX funding rate aggregator
+    pub fn initialize_cex_funding_feed(
+        ctx: Context<InitializeCexFundingFeed>,
+        market_symbol: String,
+        aggregation_method: FundingAggregationMethod,
+    ) -> Result<()> {
+        let feed = &mut ctx.accounts.cex_funding_feed;
+        let clock = Clock::get()?;
+
+        feed.authority = ctx.accounts.authority.key();
+        feed.market_symbol = market_symbol;
+        feed.exchange_sources = Vec::new();
+        feed.aggregated_rate_bps = 0;
+        feed.aggregation_method = aggregation_method;
+        feed.total_open_interest = 0;
+        feed.oi_weighted_rate_bps = 0;
+        feed.rate_history = Vec::new();
+        feed.last_update = clock.unix_timestamp;
+        feed.is_active = true;
+        feed.bump = ctx.bumps.cex_funding_feed;
+
+        Ok(())
+    }
+
+    /// Add an exchange source to CEX funding feed
+    pub fn add_exchange_source(
+        ctx: Context<AddExchangeSource>,
+        exchange: CexExchange,
+        funding_interval: u64,
+    ) -> Result<()> {
+        let feed = &mut ctx.accounts.cex_funding_feed;
+        let clock = Clock::get()?;
+
+        require!(feed.exchange_sources.len() < 8, OracleError::TooManySources);
+
+        feed.exchange_sources.push(ExchangeFundingSource {
+            exchange,
+            current_rate_bps: 0,
+            next_funding_time: 0,
+            funding_interval,
+            open_interest: 0,
+            last_update: clock.unix_timestamp,
+            is_active: true,
+        });
+
+        Ok(())
+    }
+
+    /// Update funding rate for a specific exchange
+    pub fn update_exchange_funding(
+        ctx: Context<UpdateExchangeFunding>,
+        exchange: CexExchange,
+        rate_bps: i64,
+        open_interest: u64,
+        next_funding_time: i64,
+    ) -> Result<()> {
+        let feed = &mut ctx.accounts.cex_funding_feed;
+        let clock = Clock::get()?;
+
+        // Find and update the exchange source
+        let source = feed.exchange_sources
+            .iter_mut()
+            .find(|s| s.exchange == exchange)
+            .ok_or(OracleError::ExchangeNotFound)?;
+
+        source.current_rate_bps = rate_bps;
+        source.open_interest = open_interest;
+        source.next_funding_time = next_funding_time;
+        source.last_update = clock.unix_timestamp;
+
+        // Recalculate aggregated values
+        feed.aggregated_rate_bps = feed.calculate_aggregated_rate();
+        feed.total_open_interest = feed.exchange_sources
+            .iter()
+            .filter(|s| s.is_active)
+            .map(|s| s.open_interest)
+            .sum();
+
+        // Calculate OI-weighted rate
+        let weighted_sum: i128 = feed.exchange_sources
+            .iter()
+            .filter(|s| s.is_active)
+            .map(|s| s.current_rate_bps as i128 * s.open_interest as i128)
+            .sum();
+
+        if feed.total_open_interest > 0 {
+            feed.oi_weighted_rate_bps = (weighted_sum / feed.total_open_interest as i128) as i64;
+        }
+
+        // Store values before pushing to history (to avoid borrow conflict)
+        let rate_bps = feed.aggregated_rate_bps;
+        let oi_weighted_rate = feed.oi_weighted_rate_bps;
+        let total_oi = feed.total_open_interest;
+
+        // Add to history
+        feed.rate_history.push(CexFundingRateSample {
+            rate_bps,
+            oi_weighted_rate_bps: oi_weighted_rate,
+            total_oi,
+            timestamp: clock.unix_timestamp,
+        });
+
+        // Trim history
+        if feed.rate_history.len() > 168 {
+            feed.rate_history.remove(0);
+        }
+
+        feed.last_update = clock.unix_timestamp;
+
+        Ok(())
+    }
+
+    // ============================================================================
+    // Secondary Market Instructions
+    // ============================================================================
+
+    /// Initialize secondary market for a protocol
+    pub fn initialize_secondary_market(
+        ctx: Context<InitializeSecondaryMarket>,
+        protocol: SigmaProtocol,
+        fee_rate_bps: u16,
+    ) -> Result<()> {
+        let market = &mut ctx.accounts.secondary_market;
+
+        market.authority = ctx.accounts.authority.key();
+        market.protocol = protocol;
+        market.listings = Vec::new();
+        market.total_volume = 0;
+        market.total_trades = 0;
+        market.fee_rate_bps = fee_rate_bps;
+        market.fee_recipient = ctx.accounts.fee_recipient.key();
+        market.is_active = true;
+        market.bump = ctx.bumps.secondary_market;
+
+        Ok(())
+    }
+
+    /// Tokenize a position for secondary market trading
+    pub fn tokenize_position(
+        ctx: Context<TokenizePosition>,
+        protocol: SigmaProtocol,
+        notional: u64,
+        expiry: i64,
+        direction: PositionDirection,
+        strike: u64,
+        position_hash: [u8; 32],
+    ) -> Result<()> {
+        let token = &mut ctx.accounts.position_token;
+        let clock = Clock::get()?;
+
+        token.owner = ctx.accounts.owner.key();
+        token.protocol = protocol;
+        token.position_account = ctx.accounts.position_account.key();
+        token.position_hash = position_hash;
+        token.notional = notional;
+        token.mark_to_market = notional as i64; // Initial MTM = notional
+        token.expiry = expiry;
+        token.direction = direction;
+        token.strike = strike;
+        token.created_at = clock.unix_timestamp;
+        token.is_listed = false;
+        token.listing_price = 0;
+        token.min_price = 0;
+        token.is_active = true;
+        token.bump = ctx.bumps.position_token;
+
+        Ok(())
+    }
+
+    /// List a position token for sale
+    pub fn list_position(
+        ctx: Context<ListPosition>,
+        price: u64,
+        min_price: u64,
+        listing_expiry: i64,
+    ) -> Result<()> {
+        let token = &mut ctx.accounts.position_token;
+        let market = &mut ctx.accounts.secondary_market;
+        let clock = Clock::get()?;
+
+        require!(token.is_active, OracleError::PositionInactive);
+        require!(!token.is_expired(clock.unix_timestamp), OracleError::PositionExpired);
+
+        token.is_listed = true;
+        token.listing_price = price;
+        token.min_price = min_price;
+
+        // Add to market listings
+        market.listings.push(MarketListing {
+            position_token: ctx.accounts.position_token.key(),
+            seller: ctx.accounts.owner.key(),
+            price,
+            listed_at: clock.unix_timestamp,
+            listing_expiry,
+            is_active: true,
+        });
+
+        Ok(())
+    }
+
+    /// Cancel a position listing
+    pub fn cancel_listing(ctx: Context<CancelListing>) -> Result<()> {
+        let token = &mut ctx.accounts.position_token;
+        let market = &mut ctx.accounts.secondary_market;
+
+        token.is_listed = false;
+        token.listing_price = 0;
+        token.min_price = 0;
+
+        // Remove from market listings
+        if let Some(idx) = market.listings.iter().position(|l| l.position_token == ctx.accounts.position_token.key()) {
+            market.listings[idx].is_active = false;
+        }
+
+        Ok(())
+    }
+
+    /// Buy a listed position
+    pub fn buy_position(ctx: Context<BuyPosition>) -> Result<()> {
+        let token = &mut ctx.accounts.position_token;
+        let market = &mut ctx.accounts.secondary_market;
+        let clock = Clock::get()?;
+
+        require!(token.is_listed, OracleError::NotListed);
+        require!(token.is_active, OracleError::PositionInactive);
+
+        let price = token.listing_price;
+
+        // Transfer ownership
+        token.owner = ctx.accounts.buyer.key();
+        token.is_listed = false;
+        token.listing_price = 0;
+
+        // Update market stats
+        market.total_volume += price;
+        market.total_trades += 1;
+
+        // Deactivate listing
+        if let Some(idx) = market.listings.iter().position(|l| l.position_token == ctx.accounts.position_token.key()) {
+            market.listings[idx].is_active = false;
+        }
+
+        // Note: Actual USDC transfer would be handled in a separate instruction
+        // or through CPI to token program
+
+        Ok(())
+    }
+
+    /// Update mark-to-market value for a position
+    pub fn update_position_mtm(
+        ctx: Context<UpdatePositionMtm>,
+        new_mtm: i64,
+    ) -> Result<()> {
+        let token = &mut ctx.accounts.position_token;
+        token.mark_to_market = new_mtm;
+        Ok(())
     }
 }
 
@@ -404,4 +791,223 @@ pub struct StartNewVarianceEpoch<'info> {
         bump = variance_tracker.bump
     )]
     pub variance_tracker: Account<'info, VarianceTracker>,
+}
+
+// ============================================================================
+// Contexts - Volatility Index
+// ============================================================================
+
+#[derive(Accounts)]
+#[instruction(index_name: String)]
+pub struct InitializeVolatilityIndex<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    pub price_feed: Account<'info, PriceFeed>,
+
+    #[account(
+        seeds = [b"variance_tracker", price_feed.key().as_ref()],
+        bump = variance_tracker.bump
+    )]
+    pub variance_tracker: Account<'info, VarianceTracker>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + VolatilityIndex::INIT_SPACE,
+        seeds = [b"volatility_index", price_feed.key().as_ref(), index_name.as_bytes()],
+        bump
+    )]
+    pub volatility_index: Account<'info, VolatilityIndex>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateVolatilityIndex<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = volatility_index.is_active @ OracleError::FeedInactive
+    )]
+    pub volatility_index: Account<'info, VolatilityIndex>,
+
+    #[account(
+        constraint = variance_tracker.key() == volatility_index.variance_tracker @ OracleError::InvalidVarianceTracker
+    )]
+    pub variance_tracker: Account<'info, VarianceTracker>,
+}
+
+#[derive(Accounts)]
+pub struct SetImpliedVolatility<'info> {
+    #[account(
+        constraint = authority.key() == volatility_index.authority @ OracleError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub volatility_index: Account<'info, VolatilityIndex>,
+}
+
+// ============================================================================
+// Contexts - CEX Funding Feed
+// ============================================================================
+
+#[derive(Accounts)]
+#[instruction(market_symbol: String)]
+pub struct InitializeCexFundingFeed<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + CexFundingFeed::INIT_SPACE,
+        seeds = [b"cex_funding_feed", market_symbol.as_bytes()],
+        bump
+    )]
+    pub cex_funding_feed: Account<'info, CexFundingFeed>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AddExchangeSource<'info> {
+    #[account(
+        constraint = authority.key() == cex_funding_feed.authority @ OracleError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub cex_funding_feed: Account<'info, CexFundingFeed>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateExchangeFunding<'info> {
+    #[account(
+        constraint = authority.key() == cex_funding_feed.authority @ OracleError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = cex_funding_feed.is_active @ OracleError::FeedInactive
+    )]
+    pub cex_funding_feed: Account<'info, CexFundingFeed>,
+}
+
+// ============================================================================
+// Contexts - Secondary Market
+// ============================================================================
+
+#[derive(Accounts)]
+#[instruction(protocol: SigmaProtocol)]
+pub struct InitializeSecondaryMarket<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    /// CHECK: Fee recipient account
+    pub fee_recipient: AccountInfo<'info>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + SecondaryMarket::INIT_SPACE,
+        seeds = [b"secondary_market", protocol.seed_bytes().as_ref()],
+        bump
+    )]
+    pub secondary_market: Account<'info, SecondaryMarket>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct TokenizePosition<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    /// CHECK: Original position account in the protocol
+    pub position_account: AccountInfo<'info>,
+
+    #[account(
+        init,
+        payer = owner,
+        space = 8 + PositionToken::INIT_SPACE,
+        seeds = [b"position_token", position_account.key().as_ref()],
+        bump
+    )]
+    pub position_token: Account<'info, PositionToken>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ListPosition<'info> {
+    #[account(
+        constraint = owner.key() == position_token.owner @ OracleError::Unauthorized
+    )]
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = position_token.protocol == secondary_market.protocol @ OracleError::ProtocolMismatch
+    )]
+    pub position_token: Account<'info, PositionToken>,
+
+    #[account(
+        mut,
+        constraint = secondary_market.is_active @ OracleError::MarketInactive
+    )]
+    pub secondary_market: Account<'info, SecondaryMarket>,
+}
+
+#[derive(Accounts)]
+pub struct CancelListing<'info> {
+    #[account(
+        constraint = owner.key() == position_token.owner @ OracleError::Unauthorized
+    )]
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = position_token.is_listed @ OracleError::NotListed
+    )]
+    pub position_token: Account<'info, PositionToken>,
+
+    #[account(mut)]
+    pub secondary_market: Account<'info, SecondaryMarket>,
+}
+
+#[derive(Accounts)]
+pub struct BuyPosition<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = position_token.is_listed @ OracleError::NotListed,
+        constraint = position_token.is_active @ OracleError::PositionInactive
+    )]
+    pub position_token: Account<'info, PositionToken>,
+
+    #[account(
+        mut,
+        constraint = secondary_market.is_active @ OracleError::MarketInactive
+    )]
+    pub secondary_market: Account<'info, SecondaryMarket>,
+
+    // Note: In production, would include token accounts for USDC transfer
+}
+
+#[derive(Accounts)]
+pub struct UpdatePositionMtm<'info> {
+    #[account(
+        constraint = authority.key() == position_token.owner @ OracleError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub position_token: Account<'info, PositionToken>,
 }
