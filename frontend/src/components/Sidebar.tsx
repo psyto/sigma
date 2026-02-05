@@ -9,6 +9,9 @@ import {
   Gem,
   Droplets,
   Home,
+  Activity,
+  Building2,
+  ShoppingCart,
 } from "lucide-react";
 
 const navigation = [
@@ -18,6 +21,9 @@ const navigation = [
   { name: "FundingSwap", href: "/funding-swap", icon: RefreshCw },
   { name: "ExoticVault", href: "/exotic-vault", icon: Gem },
   { name: "Liquidity", href: "/liquidity", icon: Droplets },
+  { name: "Volatility Index", href: "/volatility-index", icon: Activity },
+  { name: "CEX Funding", href: "/cex-funding", icon: Building2 },
+  { name: "Secondary Market", href: "/secondary-market", icon: ShoppingCart },
 ];
 
 export function Sidebar() {

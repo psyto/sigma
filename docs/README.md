@@ -10,6 +10,7 @@ Sigma is a DeFi derivatives protocol suite on Solana offering sophisticated fina
 4. [ExoticVault](./04-exotic-vault.md) - Asian and barrier options
 5. [Liquidity Provision](./05-liquidity.md) - Earn yield by providing liquidity
 6. [Use Cases](./06-use-cases.md) - Real-world trading scenarios
+7. [Advanced Features](./07-advanced-features.md) - SVI, CEX Funding, Secondary Market
 
 ## Quick Summary
 
@@ -19,6 +20,9 @@ Sigma is a DeFi derivatives protocol suite on Solana offering sophisticated fina
 | **FundingSwap** | Swap floating funding for fixed | Perp traders hedging funding costs |
 | **ExoticVault** | Asian & barrier options | Sophisticated options traders |
 | **LP Pools** | Provide liquidity, earn fees | Yield seekers with risk tolerance |
+| **SVI** | Volatility index tracking | Quantitative traders, researchers |
+| **CEX Funding** | Aggregated CEX funding rates | CEX perp traders, arbitrageurs |
+| **Secondary Market** | Trade positions before expiry | Active traders needing liquidity |
 
 ## Why Sigma?
 

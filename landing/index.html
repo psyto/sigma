@@ -32,6 +32,9 @@
       --volswap: #8b5cf6;
       --funding: #06b6d4;
       --exotic: #f59e0b;
+      --svi: #22c55e;
+      --cex: #3b82f6;
+      --market: #ec4899;
     }
 
     html {
@@ -322,6 +325,18 @@
       background: linear-gradient(90deg, var(--exotic), transparent);
     }
 
+    .protocol-card.svi::before {
+      background: linear-gradient(90deg, var(--svi), transparent);
+    }
+
+    .protocol-card.cex::before {
+      background: linear-gradient(90deg, var(--cex), transparent);
+    }
+
+    .protocol-card.market::before {
+      background: linear-gradient(90deg, var(--market), transparent);
+    }
+
     .protocol-card:hover {
       transform: translateY(-4px);
       border-color: rgba(255, 255, 255, 0.15);
@@ -349,6 +364,21 @@
     .protocol-badge.exotic {
       background: rgba(245, 158, 11, 0.15);
       color: var(--exotic);
+    }
+
+    .protocol-badge.svi {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--svi);
+    }
+
+    .protocol-badge.cex {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--cex);
+    }
+
+    .protocol-badge.market {
+      background: rgba(236, 72, 153, 0.15);
+      color: var(--market);
     }
 
     .protocol-card h3 {
@@ -832,8 +862,8 @@
     </div>
     <div class="hero-stats">
       <div class="hero-stat">
-        <div class="hero-stat-value">3</div>
-        <div class="hero-stat-label">Core Protocols</div>
+        <div class="hero-stat-value">6</div>
+        <div class="hero-stat-label">Core Features</div>
       </div>
       <div class="hero-stat">
         <div class="hero-stat-value">60%</div>
@@ -879,8 +909,8 @@
   <!-- Protocols Section -->
   <section id="protocols">
     <span class="section-label">The Solution</span>
-    <h2 class="section-title">Three protocols, one unified suite</h2>
-    <p class="section-subtitle">Everything you need for sophisticated derivatives trading on Solana.</p>
+    <h2 class="section-title">Complete derivatives infrastructure</h2>
+    <p class="section-subtitle">Three core protocols plus advanced features for sophisticated trading on Solana.</p>
 
     <div class="protocols-grid">
       <div class="protocol-card volswap fade-in">
@@ -910,6 +940,36 @@
         <div class="protocol-stat">
           <span class="protocol-stat-value">40-60%</span>
           <span class="protocol-stat-label">cheaper than vanilla options</span>
+        </div>
+      </div>
+
+      <div class="protocol-card svi fade-in">
+        <span class="protocol-badge svi">SVI</span>
+        <h3>Volatility Index</h3>
+        <p>On-chain volatility index comparable to Volmex SVIV. Track realized and implied vol with regime detection.</p>
+        <div class="protocol-stat">
+          <span class="protocol-stat-value">Real-time</span>
+          <span class="protocol-stat-label">volatility tracking</span>
+        </div>
+      </div>
+
+      <div class="protocol-card cex fade-in">
+        <span class="protocol-badge cex">CEX Funding</span>
+        <h3>CEX Funding Rates</h3>
+        <p>Aggregated funding rates from Binance, Bybit, OKX, Deribit, Bitget, and Kraken. Hedge CEX positions on-chain.</p>
+        <div class="protocol-stat">
+          <span class="protocol-stat-value">6 exchanges</span>
+          <span class="protocol-stat-label">aggregated data</span>
+        </div>
+      </div>
+
+      <div class="protocol-card market fade-in">
+        <span class="protocol-badge market">Secondary Market</span>
+        <h3>Position Trading</h3>
+        <p>Trade positions before expiry. Tokenize any Sigma position and list it for sale on the marketplace.</p>
+        <div class="protocol-stat">
+          <span class="protocol-stat-value">Early exit</span>
+          <span class="protocol-stat-label">liquidity for positions</span>
         </div>
       </div>
     </div>
@@ -1023,6 +1083,24 @@
           <td class="highlight">Open source</td>
           <td class="check">✓</td>
         </tr>
+        <tr>
+          <td>Volatility Index</td>
+          <td class="dim">Volmex (EVM only)</td>
+          <td class="highlight">SVI (Solana native)</td>
+          <td class="check">✓</td>
+        </tr>
+        <tr>
+          <td>CEX Funding Data</td>
+          <td class="dim">Manual tracking</td>
+          <td class="highlight">6 exchanges aggregated</td>
+          <td class="check">✓</td>
+        </tr>
+        <tr>
+          <td>Position Liquidity</td>
+          <td class="dim">Wait for expiry</td>
+          <td class="highlight">Secondary Market</td>
+          <td class="check">✓</td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -1108,7 +1186,7 @@
       <div class="roadmap-item completed">
         <div class="roadmap-dot">✓</div>
         <h4>Q1 2025</h4>
-        <p>Devnet Launch<br>Core Protocols</p>
+        <p>Core Protocols<br>SVI, CEX Feed, Market</p>
       </div>
       <div class="roadmap-item">
         <div class="roadmap-dot">Q2</div>

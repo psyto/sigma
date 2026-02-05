@@ -1,65 +1,110 @@
 # Sigma (σ)
 
-**DeFi Derivatives Protocol Suite on Solana**
+**Advanced DeFi Derivatives Protocol Suite on Solana**
 
-Sigma brings sophisticated volatility and exotic derivative instruments to Solana, enabling advanced hedging, speculation, and structured product creation.
+Sigma brings institutional-grade volatility and exotic derivative instruments to Solana, enabling advanced hedging, speculation, and structured product creation — at 60% lower cost than traditional alternatives.
+
+## Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Volatility Index (SVI)** | On-chain volatility index comparable to Volmex SVIV |
+| **CEX Funding Rates** | Aggregated funding rates from Binance, Bybit, OKX, and more |
+| **Secondary Market** | Trade positions before expiry via tokenized position market |
+| **Unified Oracle** | Shared infrastructure for price, variance, and funding data |
 
 ## Protocols
 
 | Protocol | Description | Status |
 |----------|-------------|--------|
-| **VolSwap** | Variance swaps for volatility trading | In Development |
-| **FundingSwap** | Funding rate receiver/payer derivatives | In Development |
-| **ExoticVault** | Asian & barrier options | In Development |
-| **Shared Oracle** | Unified price feeds, TWAP, variance | In Development |
+| **VolSwap** | Variance swaps for volatility trading | ✅ Implemented |
+| **FundingSwap** | Funding rate receiver/payer derivatives | ✅ Implemented |
+| **ExoticVault** | Asian & barrier options | ✅ Implemented |
+| **Shared Oracle** | Unified price feeds, TWAP, variance, volatility index | ✅ Implemented |
 
 ## Architecture
 
 ```
                          Sigma Protocol Suite
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│  ┌───────────┐   ┌─────────────┐   ┌─────────────┐        │
-│  │  VolSwap  │   │ FundingSwap │   │ ExoticVault │        │
-│  │           │   │             │   │             │        │
-│  │ Variance  │   │  Receiver/  │   │   Asian &   │        │
-│  │  Swaps    │   │   Payer     │   │   Barrier   │        │
-│  └─────┬─────┘   └──────┬──────┘   └──────┬──────┘        │
-│        │                │                 │                │
-│        └────────────────┼─────────────────┘                │
-│                         │                                  │
-│                ┌────────▼────────┐                         │
-│                │  Shared Oracle  │                         │
-│                └─────────────────┘                         │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│  ┌───────────┐   ┌─────────────┐   ┌─────────────┐                │
+│  │  VolSwap  │   │ FundingSwap │   │ ExoticVault │                │
+│  │           │   │             │   │             │                │
+│  │ Variance  │   │  Receiver/  │   │   Asian &   │                │
+│  │  Swaps    │   │   Payer     │   │   Barrier   │                │
+│  └─────┬─────┘   └──────┬──────┘   └──────┬──────┘                │
+│        │                │                 │                        │
+│        └────────────────┼─────────────────┘                        │
+│                         │                                          │
+│         ┌───────────────┼───────────────┐                         │
+│         │               │               │                         │
+│  ┌──────▼──────┐ ┌──────▼──────┐ ┌──────▼──────┐                 │
+│  │ Volatility  │ │ CEX Funding │ │  Secondary  │                 │
+│  │ Index (SVI) │ │    Feed     │ │   Market    │                 │
+│  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘                 │
+│         │               │               │                         │
+│         └───────────────┼───────────────┘                         │
+│                         │                                          │
+│                ┌────────▼────────┐                                 │
+│                │  Shared Oracle  │                                 │
+│                │  (Price, TWAP,  │                                 │
+│                │   Variance)     │                                 │
+│                └────────┬────────┘                                 │
+│                         │                                          │
+│         ┌───────────────┼───────────────┐                         │
+│         │               │               │                         │
+│      ┌──▼──┐       ┌────▼────┐     ┌────▼────┐                   │
+│      │Pyth │       │Switchboard│   │  Drift  │                   │
+│      └─────┘       └──────────┘     └─────────┘                   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Protocols Overview
 
 ### VolSwap
 
-Trade realized volatility through variance swaps.
+Trade realized volatility through variance swaps — the purest, most capital-efficient way to trade volatility.
 
-- **Long**: Profit when realized variance exceeds strike
-- **Short**: Profit when realized variance stays below strike
-- **Payoff**: `Notional × (RealizedVariance - StrikeVariance)`
+- **Long Variance**: Profit when realized variance exceeds strike (2-4% cost vs 8-12% for straddles)
+- **Short Variance**: Profit when realized variance stays below strike
+- **Payoff**: `Notional × (RealizedVariance - StrikeVariance) / StrikeVariance`
 
 ### FundingSwap
 
-Trade funding rate exposure without holding perpetuals.
+Trade funding rate exposure with support for both on-chain perps and CEX funding rates.
 
-- **Receiver**: Pay fixed rate, receive floating funding rate
-- **Payer**: Receive fixed rate, pay floating funding rate
-- **Use Cases**: Funding rate speculation, basis trading, hedging
+- **Receive Fixed**: Pay floating funding rate, receive fixed rate
+- **Pay Fixed**: Receive floating funding rate, pay fixed rate
+- **CEX Integration**: Aggregated rates from Binance, Bybit, OKX, Deribit, Bitget, Kraken
+- **Use Cases**: Funding rate speculation, basis trading, hedging perp positions
 
 ### ExoticVault
 
-Structured exotic options with path-dependent payoffs.
+Structured exotic options with path-dependent payoffs — 40-60% cheaper than vanilla options.
 
 - **Asian Options**: Settlement based on TWAP (manipulation resistant)
 - **Barrier Options**: Knock-in/knock-out at price barriers
-- **Use Cases**: Hedging, structured products, premium collection
+- **Use Cases**: Cheap crash protection, hedging, structured products
+
+### Sigma Volatility Index (SVI)
+
+On-chain volatility index comparable to Volmex SVIV.
+
+- **Real-time Index**: Tracks realized and implied volatility
+- **Regime Detection**: VeryLow, Low, Normal, High, Extreme classifications
+- **Mean Reversion Signals**: Identifies when volatility is elevated or depressed
+- **Historical Data**: 7-day and 30-day averages, percentile rankings
+
+### Secondary Market
+
+Trade positions before expiry through tokenized position market.
+
+- **Position Tokenization**: Convert any Sigma position to a tradeable token
+- **Marketplace**: List, buy, and sell positions with price discovery
+- **Mark-to-Market**: Real-time position valuation
+- **Early Exit**: Exit positions without waiting for settlement
 
 ## Project Structure
 
@@ -67,16 +112,22 @@ Structured exotic options with path-dependent payoffs.
 sigma/
 ├── programs/
 │   ├── shared-oracle/     # Unified oracle infrastructure
+│   │   ├── Price feeds, TWAP, variance tracking
+│   │   ├── Volatility Index (SVI)
+│   │   ├── CEX Funding Rate aggregation
+│   │   └── Secondary Market infrastructure
 │   ├── volswap/           # Variance swap protocol
 │   ├── funding-swap/      # Funding rate derivatives
 │   └── exotic-vault/      # Asian & barrier options
-├── packages/
-│   └── sdk/               # TypeScript SDK (planned)
-├── oracle/                # Oracle service (planned)
-├── apps/
-│   └── dashboard/         # Trading UI (planned)
-├── tests/                 # Integration tests (planned)
-└── docs/                  # Implementation plans
+├── frontend/              # Next.js trading dashboard
+├── landing/               # Landing page
+├── pitch-deck/            # Investor pitch deck
+└── docs/                  # Documentation
+    ├── Protocol mechanics
+    ├── Use cases
+    ├── Marketing plan
+    ├── Liquidity strategy
+    └── Competitive analysis
 ```
 
 ## Getting Started
@@ -95,11 +146,11 @@ sigma/
 git clone https://github.com/psyto/sigma.git
 cd sigma
 
-# Install dependencies
-npm install
-
 # Build programs
-anchor build
+cargo build --all
+
+# Install frontend dependencies
+cd frontend && npm install
 ```
 
 ### Development
@@ -111,67 +162,104 @@ solana-test-validator
 # Deploy to localnet
 anchor deploy
 
-# Run tests
-anchor test
+# Run frontend
+cd frontend && npm run dev
 ```
 
 ## Documentation
 
-- [Master Roadmap](docs/SIGMA_ROADMAP.md)
-- [VolSwap Implementation Plan](docs/VOLSWAP_IMPLEMENTATION_PLAN.md)
-- [FundingSwap Implementation Plan](docs/FUNDINGSWAP_IMPLEMENTATION_PLAN.md)
-- [ExoticVault Implementation Plan](docs/EXOTICVAULT_IMPLEMENTATION_PLAN.md)
+### Protocol Mechanics
+- [Overview](docs/01-overview.md) - What Sigma is and why it matters
+- [VolSwap](docs/02-volswap.md) - Variance swaps explained
+- [FundingSwap](docs/03-funding-swap.md) - Funding rate derivatives
+- [ExoticVault](docs/04-exotic-vault.md) - Asian & barrier options
+- [Liquidity Provision](docs/05-liquidity.md) - LP economics
+- [Use Cases](docs/06-use-cases.md) - Real-world trading scenarios
+
+### Strategy & Business
+- [Marketing Plan](docs/marketing-plan.md) - Go-to-market strategy
+- [Liquidity Strategy](docs/liquidity-strategy.md) - LP bootstrapping
+- [Competitive Analysis](docs/competitive-analysis.md) - Market positioning
 
 ## Use Cases
 
 ### Volatility Trading
 ```
-User expects high volatility:
+ETF decision coming, expect high volatility:
 ├── Open long variance position in VolSwap
-└── Profit if realized vol > strike vol
+├── Strike: 35%, Cost: 3% premium
+└── If realized variance = 55%, profit = 57% on notional
 ```
 
-### Funding Rate Arbitrage
+### Funding Rate Hedging
 ```
-Funding rate mispricing detected:
-├── Open FundingSwap receiver position
-├── Open offsetting perp on Drift/Jupiter
-└── Capture spread between rates
-```
-
-### Path-Dependent Hedging
-```
-Hedge with manipulation resistance:
-├── Buy Asian put option (TWAP-settled)
-└── Protected from spot manipulation at expiry
+Holding $100K long perp, funding is unpredictable:
+├── Open FundingSwap to receive fixed rate
+├── Lock in 0.04% per 8h funding cost
+└── Predictable costs regardless of market conditions
 ```
 
-### Structured Products
+### Cheap Crash Protection
 ```
-Principal Protected Note:
-├── 90% in stablecoin yield
-├── 10% in Asian call option
-└── Downside protected + upside exposure
+Want downside protection without expensive puts:
+├── Buy knock-in put (1.8% vs 5.5% vanilla)
+├── Only activates on significant crash (>15% drop)
+└── Same protection, 67% savings on premium
 ```
+
+### Position Trading
+```
+Need to exit position before expiry:
+├── Tokenize position via Secondary Market
+├── List at desired price
+└── Buyer takes over position, you exit early
+```
+
+## Comparison to Alternatives
+
+| Capability | Traditional | Sigma |
+|------------|-------------|-------|
+| Volatility Trading | Straddles (8-12%) | Variance Swaps (2-4%) |
+| Funding Hedge | Not available | FundingSwap |
+| Crash Protection | Puts (5-6%) | Barrier Puts (1.5-2%) |
+| Position Liquidity | Wait for expiry | Secondary Market |
+| Volatility Index | Volmex (EVM only) | SVI (Solana native) |
+| CEX Funding Data | Manual tracking | Aggregated feed |
 
 ## Roadmap
 
 - [x] Monorepo setup
 - [x] Program scaffolding
-- [x] Implementation plans
-- [ ] Shared oracle completion
-- [ ] VolSwap core implementation
-- [ ] FundingSwap core implementation
-- [ ] ExoticVault core implementation
+- [x] Shared Oracle implementation
+- [x] VolSwap implementation
+- [x] FundingSwap implementation
+- [x] ExoticVault implementation
+- [x] Volatility Index (SVI)
+- [x] CEX Funding Rate integration
+- [x] Secondary Market infrastructure
+- [x] Frontend dashboard
+- [x] Landing page
+- [x] Documentation
 - [ ] TypeScript SDK
 - [ ] Integration tests
 - [ ] Security audit
 - [ ] Devnet deployment
 - [ ] Mainnet beta
 
+## Target Users
+
+| User Type | Primary Use |
+|-----------|-------------|
+| Event Traders | VolSwap for volatility around news events |
+| Basis Traders | FundingSwap to lock in funding yield |
+| Portfolio Hedgers | ExoticVault for cheap crash protection |
+| Yield Farmers | LP pools for 15-40% APY |
+| Perp Traders | FundingSwap to hedge funding costs |
+| Market Makers | VolSwap to hedge gamma exposure |
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome. Please open an issue to discuss significant changes before submitting a PR.
 
 ## Security
 
@@ -183,6 +271,9 @@ If you discover a security vulnerability, please report it privately.
 
 [MIT](LICENSE)
 
-## Acknowledgments
+## Links
 
-Built on [Solana](https://solana.com) using the [Anchor](https://anchor-lang.com) framework.
+- [GitHub](https://github.com/psyto/sigma)
+- [Documentation](docs/)
+- [Landing Page](landing/)
+- [Pitch Deck](pitch-deck/)
