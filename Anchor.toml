@@ -3,22 +3,22 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-volswap = "HkmNK58gA3ho7iorsAbHXfTHHLYJ6jenKcZDPDjNknAQ"
-funding_swap = "BBnksXi8bg3Z87qdu4neD5LeSY2dgreiABPCeYpvR77u"
-exotic_vault = "36pKgauHLWvZDgEs8czCPvyLy8i5mZTD1QXuuCpvcqDV"
-shared_oracle = "DyPhNbm845yWMuAmBLmsLANxm7wDJLDwoQNR2n8n8kM1"
+shared_oracle = "81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o"
+volswap = "FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS"
+funding_swap = "GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx"
+exotic_vault = "6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P"
 
 [programs.devnet]
-volswap = "HkmNK58gA3ho7iorsAbHXfTHHLYJ6jenKcZDPDjNknAQ"
-funding_swap = "BBnksXi8bg3Z87qdu4neD5LeSY2dgreiABPCeYpvR77u"
-exotic_vault = "36pKgauHLWvZDgEs8czCPvyLy8i5mZTD1QXuuCpvcqDV"
-shared_oracle = "DyPhNbm845yWMuAmBLmsLANxm7wDJLDwoQNR2n8n8kM1"
+shared_oracle = "81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o"
+volswap = "FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS"
+funding_swap = "GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx"
+exotic_vault = "6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Devnet"
+cluster = "Localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

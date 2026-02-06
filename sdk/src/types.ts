@@ -6,10 +6,10 @@ import BN from "bn.js";
 // ============================================================================
 
 export const PROGRAM_IDS = {
-  SHARED_ORACLE: new PublicKey("DyPhNbm845yWMuAmBLmsLANxm7wDJLDwoQNR2n8n8kM1"),
-  VOLSWAP: new PublicKey("HkmNK58gA3ho7iorsAbHXfTHHLYJ6jenKcZDPDjNknAQ"),
-  FUNDING_SWAP: new PublicKey("BBnksXi8bg3Z87qdu4neD5LeSY2dgreiABPCeYpvR77u"),
-  EXOTIC_VAULT: new PublicKey("36pKgauHLWvZDgEs8czCPvyLy8i5mZTD1QXuuCpvcqDV"),
+  SHARED_ORACLE: new PublicKey("81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o"),
+  VOLSWAP: new PublicKey("FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS"),
+  FUNDING_SWAP: new PublicKey("GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx"),
+  EXOTIC_VAULT: new PublicKey("6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P"),
 } as const;
 
 // ============================================================================
