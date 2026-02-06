@@ -23,6 +23,7 @@ const provider = AnchorProvider.env();
 const sigma = new SigmaClient(provider);
 
 // Or use convenience constructors
+const localClient = SigmaClient.localnet(wallet);  // http://127.0.0.1:8899
 const devnetClient = SigmaClient.devnet(wallet);
 const mainnetClient = SigmaClient.mainnet(wallet);
 ```
@@ -166,10 +167,10 @@ import type {
 ```typescript
 import { PROGRAM_IDS } from "@sigma-protocol/sdk";
 
-console.log(PROGRAM_IDS.SHARED_ORACLE);  // DyPhNbm845yWMuAmBLmsLANxm7wDJLDwoQNR2n8n8kM1
-console.log(PROGRAM_IDS.VOLSWAP);        // HkmNK58gA3ho7iorsAbHXfTHHLYJ6jenKcZDPDjNknAQ
-console.log(PROGRAM_IDS.FUNDING_SWAP);   // BBnksXi8bg3Z87qdu4neD5LeSY2dgreiABPCeYpvR77u
-console.log(PROGRAM_IDS.EXOTIC_VAULT);   // 36pKgauHLWvZDgEs8czCPvyLy8i5mZTD1QXuuCpvcqDV
+console.log(PROGRAM_IDS.SHARED_ORACLE);  // 81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o
+console.log(PROGRAM_IDS.VOLSWAP);        // FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS
+console.log(PROGRAM_IDS.FUNDING_SWAP);   // GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx
+console.log(PROGRAM_IDS.EXOTIC_VAULT);   // 6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P
 ```
 
 ## License

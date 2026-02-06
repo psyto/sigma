@@ -179,6 +179,30 @@ export class SigmaClient {
       idls
     );
   }
+
+  /**
+   * Create a SigmaClient for localnet (local validator)
+   */
+  static localnet(
+    wallet: any,
+    rpcUrl: string = "http://127.0.0.1:8899",
+    commitment: Commitment = "confirmed",
+    idls?: {
+      oracle?: any;
+      volswap?: any;
+      fundingSwap?: any;
+      exoticVault?: any;
+    }
+  ): SigmaClient {
+    const connection = new Connection(rpcUrl, commitment);
+    return SigmaClient.fromConnection(
+      connection,
+      wallet,
+      commitment,
+      { cluster: "localnet" },
+      idls
+    );
+  }
 }
 
 // Default export

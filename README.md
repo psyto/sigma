@@ -119,6 +119,8 @@ sigma/
 │   ├── volswap/           # Variance swap protocol
 │   ├── funding-swap/      # Funding rate derivatives
 │   └── exotic-vault/      # Asian & barrier options
+├── sdk/                   # TypeScript SDK (@sigma-protocol/sdk)
+├── tests/                 # Integration tests
 ├── frontend/              # Next.js trading dashboard
 ├── landing/               # Landing page
 ├── pitch-deck/            # Investor pitch deck
@@ -130,13 +132,22 @@ sigma/
     └── Competitive analysis
 ```
 
+## Program IDs
+
+| Program | Address |
+|---------|---------|
+| Shared Oracle | `81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o` |
+| VolSwap | `FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS` |
+| FundingSwap | `GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx` |
+| ExoticVault | `6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P` |
+
 ## Getting Started
 
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) (1.70+)
-- [Solana CLI](https://docs.solana.com/cli/install-solana-cli-tools) (1.17+)
-- [Anchor](https://www.anchor-lang.com/docs/installation) (0.29+)
+- [Solana CLI](https://docs.solana.com/cli/install-solana-cli-tools) (1.18+)
+- [Anchor](https://www.anchor-lang.com/docs/installation) (0.30+)
 - [Node.js](https://nodejs.org/) (18+)
 
 ### Installation
@@ -146,25 +157,52 @@ sigma/
 git clone https://github.com/psyto/sigma.git
 cd sigma
 
+# Install dependencies
+yarn install
+
 # Build programs
-cargo build --all
+anchor build
+
+# Build SDK
+cd sdk && npm run build && cd ..
 
 # Install frontend dependencies
-cd frontend && npm install
+cd frontend && npm install && cd ..
 ```
 
-### Development
+### Local Development
 
 ```bash
-# Run local validator
+# Configure Solana CLI for localnet
+solana config set --url localhost
+
+# Start local validator (in a separate terminal)
 solana-test-validator
 
-# Deploy to localnet
+# Deploy all programs to localnet
 anchor deploy
 
-# Run frontend
+# Run integration tests
+anchor test
+
+# Start frontend (connects to localnet by default)
 cd frontend && npm run dev
 ```
+
+The frontend will be available at `http://localhost:3000` and will automatically connect to the local validator.
+
+### SDK Usage
+
+```bash
+# Install the SDK in your project
+npm install @sigma-protocol/sdk
+
+# Or link locally for development
+cd sdk && npm link
+cd ../your-project && npm link @sigma-protocol/sdk
+```
+
+See [sdk/README.md](sdk/README.md) for detailed SDK documentation.
 
 ## Documentation
 
@@ -240,8 +278,9 @@ Need to exit position before expiry:
 - [x] Frontend dashboard
 - [x] Landing page
 - [x] Documentation
-- [ ] TypeScript SDK
-- [ ] Integration tests
+- [x] TypeScript SDK
+- [x] Integration tests
+- [x] Localnet deployment
 - [ ] Security audit
 - [ ] Devnet deployment
 - [ ] Mainnet beta
