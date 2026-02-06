@@ -1,0 +1,45 @@
+{
+  "name": "@sigma-protocol/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Sigma Protocol - DeFi derivatives on Solana",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "lint": "eslint src/",
+    "test": "jest",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "solana",
+    "defi",
+    "derivatives",
+    "variance-swap",
+    "funding-rate",
+    "options",
+    "anchor"
+  ],
+  "author": "Sigma Protocol",
+  "license": "MIT",
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.95.0",
+    "@solana/spl-token": "^0.4.0",
+    "bn.js": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.5",
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@coral-xyz/anchor": ">=0.30.0",
+    "@solana/web3.js": ">=1.90.0"
+  }
+}
