@@ -18,7 +18,7 @@ shared_oracle = "DyPhNbm845yWMuAmBLmsLANxm7wDJLDwoQNR2n8n8kM1"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "Devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
