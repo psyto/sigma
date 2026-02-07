@@ -16,10 +16,15 @@
  *
  * // Open a variance swap position
  * await sigma.volswap.openLong(underlyingMint, collateralMint, userCollateral, notional, maxPremium);
+ *
+ * // Submit a private variance swap (encrypted)
+ * await sigma.privateIntents.initializeEncryption(walletSecret);
+ * await sigma.privateIntents.registerWithSolver('https://solver.sigma.fi');
+ * await sigma.privateIntents.submitPrivateVarianceSwap({ ... });
  * ```
  */
 
-import { AnchorProvider } from "@coral-xyz/anchor";
+import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
 import { Connection, Commitment, PublicKey } from "@solana/web3.js";
 
 // Re-export clients
@@ -49,6 +54,7 @@ import { SigmaConfig, DEFAULT_CONFIG, PROGRAM_IDS } from "./types";
  * - Volswap: Variance swaps and volatility trading
  * - FundingSwap: Funding rate derivatives
  * - ExoticVault: Asian and barrier options
+ * - PrivateIntents: Encrypted order submission with solver execution
  */
 export class SigmaClient {
   public readonly oracle: OracleClient;
@@ -58,6 +64,8 @@ export class SigmaClient {
 
   public readonly provider: AnchorProvider;
   public readonly config: SigmaConfig;
+
+  private _privateIntents: any = null;
 
   /**
    * Create a new SigmaClient
@@ -105,6 +113,14 @@ export class SigmaClient {
    */
   get programIds() {
     return PROGRAM_IDS;
+  }
+
+  /**
+   * Get the private intents client for encrypted order submission
+   * Note: PrivateIntents module is not yet available - this is a placeholder
+   */
+  get privateIntents(): any {
+    throw new Error("PrivateIntents module not yet implemented");
   }
 
   /**

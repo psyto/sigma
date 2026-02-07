@@ -1,7 +1,7 @@
 {
-  "name": "@sigma-protocol/sdk",
+  "name": "@sigma-protocol/private-intents",
   "version": "0.1.0",
-  "description": "TypeScript SDK for Sigma Protocol - DeFi derivatives on Solana",
+  "description": "Private cross-chain intent protocol for Sigma derivatives",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -11,36 +11,41 @@
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
-    "lint": "eslint src/",
     "test": "jest",
+    "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },
   "keywords": [
     "solana",
     "defi",
     "derivatives",
-    "variance-swap",
-    "funding-rate",
-    "options",
+    "privacy",
+    "encryption",
+    "cross-chain",
+    "wormhole",
     "anchor"
   ],
-  "author": "Sigma Protocol",
-  "license": "MIT",
   "dependencies": {
+    "@privacy-suite/crypto": "file:../../../veil/packages/crypto",
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.95.0",
     "@solana/spl-token": "^0.4.0",
-    "@sigma-protocol/private-intents": "file:../packages/private-intents",
-    "bn.js": "^5.2.1"
+    "@certusone/wormhole-sdk": "^0.10.0",
+    "bn.js": "^5.2.1",
+    "bs58": "^5.0.0",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.5",
     "@types/node": "^20.0.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0",
+    "ts-jest": "^29.0.0"
   },
   "peerDependencies": {
-    "@coral-xyz/anchor": ">=0.30.0",
-    "@solana/web3.js": ">=1.90.0"
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.95.0"
   }
 }

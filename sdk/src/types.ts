@@ -10,6 +10,7 @@ export const PROGRAM_IDS = {
   VOLSWAP: new PublicKey("FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS"),
   FUNDING_SWAP: new PublicKey("GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx"),
   EXOTIC_VAULT: new PublicKey("6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P"),
+  PRIVATE_INTENTS: new PublicKey("PvtInt11111111111111111111111111111111111"),
 } as const;
 
 // ============================================================================

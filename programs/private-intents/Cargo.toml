@@ -1,0 +1,24 @@
+[package]
+name = "private-intents"
+version = "0.1.0"
+description = "Private cross-chain intent protocol for Sigma derivatives"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "private_intents"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+anchor-spl = "0.32.1"
+volswap = { path = "../volswap", features = ["cpi"] }
+funding-swap = { path = "../funding-swap", features = ["cpi"] }
+exotic-vault = { path = "../exotic-vault", features = ["cpi"] }
