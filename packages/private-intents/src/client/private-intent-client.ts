@@ -141,7 +141,7 @@ export class PrivateIntentClient {
     if (!solverPubkeyResponse.ok) {
       throw new Error('Failed to fetch solver pubkey');
     }
-    const solverPubkeyData = await solverPubkeyResponse.json();
+    const solverPubkeyData = await solverPubkeyResponse.json() as { encryptionPubkey: string };
     this.solverEncryptionPubkey = new Uint8Array(
       Buffer.from(solverPubkeyData.encryptionPubkey, 'hex')
     );

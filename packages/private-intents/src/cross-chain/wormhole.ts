@@ -276,7 +276,7 @@ export class WormholeClient {
       return null;
     }
 
-    const data = await response.json();
+    const data = await response.json() as { vaaBytes: string };
     return new Uint8Array(Buffer.from(data.vaaBytes, 'base64'));
   }
 }

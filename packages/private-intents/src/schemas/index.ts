@@ -1,3 +1,8 @@
+// Import schemas for use in getSchemaForIntentType
+import { VARIANCE_SWAP_SCHEMA } from './variance-swap';
+import { FUNDING_SWAP_SCHEMA } from './funding-swap';
+import { EXOTIC_OPTION_SCHEMA } from './exotic-option';
+
 // Re-export all schemas
 export {
   VarianceSwapIntent,
