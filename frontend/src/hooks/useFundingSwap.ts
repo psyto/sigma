@@ -36,17 +36,19 @@ export function useFundingSwap() {
     try {
       const allPools = await client.fundingSwap.getAllPools();
       const poolsWithData: FundingPoolData[] = allPools.map((pool: any) => {
-        const totalNotional = pool.account.totalReceiveFixedNotional
-          .add(pool.account.totalPayFixedNotional);
-        const liquidity = pool.account.totalLiquidity.toNumber() / 1e6;
+        const totalReceiver = pool.account.totalReceiverNotional?.toNumber?.() ?? pool.account.totalReceiverNotional ?? 0;
+        const totalPayer = pool.account.totalPayerNotional?.toNumber?.() ?? pool.account.totalPayerNotional ?? 0;
+        const totalNotional = totalReceiver + totalPayer;
+        const liquidity = (pool.account.totalLiquidity?.toNumber?.() ?? pool.account.totalLiquidity ?? 0) / 1e6;
         const utilization = liquidity > 0
-          ? (totalNotional.toNumber() / 1e6) / liquidity * 100
+          ? (totalNotional / 1e6) / liquidity * 100
           : 0;
+        const fixedRate = pool.account.currentFixedRateBps ?? 0;
 
         return {
           ...pool.account,
           address: pool.publicKey,
-          fixedRatePercent: 0, // Would come from pool's current rate
+          fixedRatePercent: fixedRate / 100, // bps to percent
           utilizationPercent: Math.min(utilization, 100),
           tvlUsd: liquidity,
         };

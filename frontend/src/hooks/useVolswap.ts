@@ -42,16 +42,19 @@ export function useVolswap() {
     try {
       const allPools = await client.volswap.getAllPools();
       const poolsWithData: PoolData[] = allPools.map((pool: any) => {
-        const totalNotional = pool.account.totalLongNotional.add(pool.account.totalShortNotional);
-        const liquidity = pool.account.totalLiquidity.toNumber() / 1e6; // USDC decimals
+        const totalLong = pool.account.totalLongNotional?.toNumber?.() ?? pool.account.totalLongNotional ?? 0;
+        const totalShort = pool.account.totalShortNotional?.toNumber?.() ?? pool.account.totalShortNotional ?? 0;
+        const totalNotional = totalLong + totalShort;
+        const liquidity = (pool.account.totalLiquidity?.toNumber?.() ?? pool.account.totalLiquidity ?? 0) / 1e6; // USDC decimals
         const utilization = liquidity > 0
-          ? (totalNotional.toNumber() / 1e6) / liquidity * 100
+          ? (totalNotional / 1e6) / liquidity * 100
           : 0;
+        const strikeVariance = pool.account.strikeVarianceBps?.toNumber?.() ?? pool.account.strikeVarianceBps ?? 0;
 
         return {
           ...pool.account,
           address: pool.publicKey,
-          strikeVariancePercent: pool.account.currentStrikeVarianceBps.toNumber() / 100,
+          strikeVariancePercent: strikeVariance / 100,
           utilizationPercent: Math.min(utilization, 100),
           tvlUsd: liquidity,
         };

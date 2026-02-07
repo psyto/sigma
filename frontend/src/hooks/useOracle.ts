@@ -103,7 +103,7 @@ export function useOracle() {
     try {
       const feeds = await client.oracle.getAllFundingFeeds();
       const feedsWithData: FundingData[] = feeds.map((feed: any) => {
-        const rate = feed.account.latestRate.toNumber() / 10000; // bps to decimal
+        const rate = (feed.account.currentRateBps?.toNumber?.() ?? feed.account.currentRateBps ?? 0) / 10000; // bps to decimal
         const annualized = rate * 3 * 365; // 8h rate to annual
 
         return {
