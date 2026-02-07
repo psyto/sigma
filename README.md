@@ -12,6 +12,7 @@ Sigma brings institutional-grade volatility and exotic derivative instruments to
 | **CEX Funding Rates** | Aggregated funding rates from Binance, Bybit, OKX, and more |
 | **Secondary Market** | Trade positions before expiry via tokenized position market |
 | **Unified Oracle** | Shared infrastructure for price, variance, and funding data |
+| **Private Intents** | Encrypted order submission with cross-chain collateral support |
 
 ## Protocols
 
@@ -21,44 +22,53 @@ Sigma brings institutional-grade volatility and exotic derivative instruments to
 | **FundingSwap** | Funding rate receiver/payer derivatives | ✅ Implemented |
 | **ExoticVault** | Asian & barrier options | ✅ Implemented |
 | **Shared Oracle** | Unified price feeds, TWAP, variance, volatility index | ✅ Implemented |
+| **Private Intents** | Encrypted order submission with solver execution | ✅ Implemented |
 
 ## Architecture
 
 ```
-                         Sigma Protocol Suite
-┌─────────────────────────────────────────────────────────────────────┐
-│                                                                     │
-│  ┌───────────┐   ┌─────────────┐   ┌─────────────┐                │
-│  │  VolSwap  │   │ FundingSwap │   │ ExoticVault │                │
-│  │           │   │             │   │             │                │
-│  │ Variance  │   │  Receiver/  │   │   Asian &   │                │
-│  │  Swaps    │   │   Payer     │   │   Barrier   │                │
-│  └─────┬─────┘   └──────┬──────┘   └──────┬──────┘                │
-│        │                │                 │                        │
-│        └────────────────┼─────────────────┘                        │
-│                         │                                          │
-│         ┌───────────────┼───────────────┐                         │
-│         │               │               │                         │
-│  ┌──────▼──────┐ ┌──────▼──────┐ ┌──────▼──────┐                 │
-│  │ Volatility  │ │ CEX Funding │ │  Secondary  │                 │
-│  │ Index (SVI) │ │    Feed     │ │   Market    │                 │
-│  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘                 │
-│         │               │               │                         │
-│         └───────────────┼───────────────┘                         │
-│                         │                                          │
-│                ┌────────▼────────┐                                 │
-│                │  Shared Oracle  │                                 │
-│                │  (Price, TWAP,  │                                 │
-│                │   Variance)     │                                 │
-│                └────────┬────────┘                                 │
-│                         │                                          │
-│         ┌───────────────┼───────────────┐                         │
-│         │               │               │                         │
-│      ┌──▼──┐       ┌────▼────┐     ┌────▼────┐                   │
-│      │Pyth │       │Switchboard│   │  Drift  │                   │
-│      └─────┘       └──────────┘     └─────────┘                   │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+                              Sigma Protocol Suite
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │                        Private Intents Layer                        │ │
+│  │  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐  │ │
+│  │  │   Encrypted  │───▶│    Solver    │───▶│  Cross-Chain Bridge  │  │ │
+│  │  │    Orders    │    │   Service    │    │  (Wormhole + CCTP)   │  │ │
+│  │  └──────────────┘    └──────────────┘    └──────────────────────┘  │ │
+│  └────────────────────────────────┬───────────────────────────────────┘ │
+│                                   │                                      │
+│  ┌───────────┐   ┌─────────────┐  │  ┌─────────────┐                    │
+│  │  VolSwap  │   │ FundingSwap │  │  │ ExoticVault │                    │
+│  │           │   │             │  │  │             │                    │
+│  │ Variance  │   │  Receiver/  │◀─┴─▶│   Asian &   │                    │
+│  │  Swaps    │   │   Payer     │     │   Barrier   │                    │
+│  └─────┬─────┘   └──────┬──────┘     └──────┬──────┘                    │
+│        │                │                   │                            │
+│        └────────────────┼───────────────────┘                            │
+│                         │                                                │
+│         ┌───────────────┼───────────────┐                               │
+│         │               │               │                               │
+│  ┌──────▼──────┐ ┌──────▼──────┐ ┌──────▼──────┐                       │
+│  │ Volatility  │ │ CEX Funding │ │  Secondary  │                       │
+│  │ Index (SVI) │ │    Feed     │ │   Market    │                       │
+│  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘                       │
+│         │               │               │                               │
+│         └───────────────┼───────────────┘                               │
+│                         │                                                │
+│                ┌────────▼────────┐                                       │
+│                │  Shared Oracle  │                                       │
+│                │  (Price, TWAP,  │                                       │
+│                │   Variance)     │                                       │
+│                └────────┬────────┘                                       │
+│                         │                                                │
+│         ┌───────────────┼───────────────┐                               │
+│         │               │               │                               │
+│      ┌──▼──┐       ┌────▼────┐     ┌────▼────┐                         │
+│      │Pyth │       │Switchboard│   │  Drift  │                         │
+│      └─────┘       └──────────┘     └─────────┘                         │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Protocols Overview
@@ -106,6 +116,16 @@ Trade positions before expiry through tokenized position market.
 - **Mark-to-Market**: Real-time position valuation
 - **Early Exit**: Exit positions without waiting for settlement
 
+### Private Intents
+
+Submit encrypted derivative orders with privacy-preserving execution.
+
+- **Encrypted Orders**: NaCl box encryption (X25519-XSalsa20-Poly1305)
+- **Solver Execution**: Trusted solver decrypts and executes orders via CPI
+- **Cross-Chain Collateral**: Bridge collateral from Ethereum/Arbitrum via Wormhole
+- **Native USDC**: Circle CCTP support for native USDC bridging
+- **Intent Types**: Supports VolSwap, FundingSwap, and ExoticVault orders
+
 ## Project Structure
 
 ```
@@ -118,7 +138,18 @@ sigma/
 │   │   └── Secondary Market infrastructure
 │   ├── volswap/           # Variance swap protocol
 │   ├── funding-swap/      # Funding rate derivatives
-│   └── exotic-vault/      # Asian & barrier options
+│   ├── exotic-vault/      # Asian & barrier options
+│   └── private-intents/   # Encrypted order submission
+├── packages/
+│   └── private-intents/   # Private intents TypeScript library
+│       ├── Encryption utilities (NaCl box)
+│       ├── Intent schemas (variance, funding, exotic)
+│       ├── Cross-chain bridge clients
+│       └── PrivateIntentClient
+├── solver/                # Solver service for intent execution
+│   ├── API endpoints
+│   ├── Intent polling and decryption
+│   └── CPI executors for each protocol
 ├── sdk/                   # TypeScript SDK (@sigma-protocol/sdk)
 ├── tests/                 # Integration tests
 ├── frontend/              # Next.js trading dashboard
@@ -140,6 +171,7 @@ sigma/
 | VolSwap | `FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS` |
 | FundingSwap | `GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx` |
 | ExoticVault | `6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P` |
+| Private Intents | `AaZSJxm7jkqb9Tjo38wU66w6owuyrDtqw3ksnyHMN9ow` |
 
 ## Getting Started
 
@@ -164,10 +196,13 @@ yarn install
 anchor build
 
 # Build SDK
-cd sdk && npm run build && cd ..
+cd sdk && yarn build && cd ..
+
+# Build private-intents package
+cd packages/private-intents && yarn build && cd ../..
 
 # Install frontend dependencies
-cd frontend && npm install && cd ..
+cd frontend && yarn install && cd ..
 ```
 
 ### Local Development
@@ -186,10 +221,15 @@ anchor deploy
 anchor test
 
 # Start frontend (connects to localnet by default)
-cd frontend && npm run dev
+cd frontend && yarn dev
+
+# Start solver service (optional, for private intents)
+cd solver && yarn dev
 ```
 
 The frontend will be available at `http://localhost:3000` and will automatically connect to the local validator.
+
+The solver service runs on `http://localhost:3001` and provides endpoints for encryption key registration and intent monitoring.
 
 ### SDK Usage
 
@@ -213,6 +253,8 @@ See [sdk/README.md](sdk/README.md) for detailed SDK documentation.
 - [ExoticVault](docs/04-exotic-vault.md) - Asian & barrier options
 - [Liquidity Provision](docs/05-liquidity.md) - LP economics
 - [Use Cases](docs/06-use-cases.md) - Real-world trading scenarios
+- [Advanced Features](docs/07-advanced-features.md) - SVI, CEX Funding, Secondary Market
+- [Private Intents](docs/08-private-intents.md) - Encrypted orders and cross-chain collateral
 
 ### Strategy & Business
 - [Marketing Plan](docs/marketing-plan.md) - Go-to-market strategy
@@ -253,6 +295,15 @@ Need to exit position before expiry:
 └── Buyer takes over position, you exit early
 ```
 
+### Private Order Execution
+```
+Large variance swap order, want to avoid front-running:
+├── Encrypt order parameters with solver's public key
+├── Submit encrypted intent with collateral
+├── Solver decrypts and executes via CPI
+└── Order executed privately, no MEV extraction
+```
+
 ## Comparison to Alternatives
 
 | Capability | Traditional | Sigma |
@@ -275,6 +326,9 @@ Need to exit position before expiry:
 - [x] Volatility Index (SVI)
 - [x] CEX Funding Rate integration
 - [x] Secondary Market infrastructure
+- [x] Private Intents protocol
+- [x] Cross-chain collateral (Wormhole + CCTP)
+- [x] Solver service
 - [x] Frontend dashboard
 - [x] Landing page
 - [x] Documentation

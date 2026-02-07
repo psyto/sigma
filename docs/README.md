@@ -11,6 +11,7 @@ Sigma is a DeFi derivatives protocol suite on Solana offering sophisticated fina
 5. [Liquidity Provision](./05-liquidity.md) - Earn yield by providing liquidity
 6. [Use Cases](./06-use-cases.md) - Real-world trading scenarios
 7. [Advanced Features](./07-advanced-features.md) - SVI, CEX Funding, Secondary Market
+8. [Private Intents](./08-private-intents.md) - Encrypted orders and cross-chain collateral
 
 ## Quick Summary
 
@@ -23,6 +24,7 @@ Sigma is a DeFi derivatives protocol suite on Solana offering sophisticated fina
 | **SVI** | Volatility index tracking | Quantitative traders, researchers |
 | **CEX Funding** | Aggregated CEX funding rates | CEX perp traders, arbitrageurs |
 | **Secondary Market** | Trade positions before expiry | Active traders needing liquidity |
+| **Private Intents** | Encrypted order submission | Privacy-conscious traders, large orders |
 
 ## Why Sigma?
 

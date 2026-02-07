@@ -130,6 +130,37 @@ await sigma.exoticVault.buyKnockout(
 );
 ```
 
+### Private Intents Client
+
+Submit encrypted derivative orders:
+
+```typescript
+import { PrivateIntentClient } from "@sigma-protocol/private-intents";
+
+// Create client
+const privateClient = new PrivateIntentClient(connection, wallet);
+
+// Initialize encryption from wallet secret
+privateClient.initializeEncryption(walletSecret);
+
+// Register with solver
+await privateClient.registerWithSolver("https://solver.sigma.fi");
+
+// Submit encrypted variance swap
+const result = await privateClient.submitPrivateVarianceSwap({
+  targetPool: poolPubkey,
+  collateralMint: usdcMint,
+  notional: new BN(10000 * 1e6),
+  premiumLimit: new BN(500 * 1e6),
+  strikeVarianceBps: new BN(3500),
+  deadline: Math.floor(Date.now() / 1000) + 3600,
+  slippageBps: 100,
+  isLong: true,
+});
+
+console.log(`Intent submitted: ${result.intentPubkey.toBase58()}`);
+```
+
 ## PDA Utilities
 
 The SDK provides utility functions for deriving Program Derived Addresses:
@@ -167,10 +198,11 @@ import type {
 ```typescript
 import { PROGRAM_IDS } from "@sigma-protocol/sdk";
 
-console.log(PROGRAM_IDS.SHARED_ORACLE);  // 81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o
-console.log(PROGRAM_IDS.VOLSWAP);        // FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS
-console.log(PROGRAM_IDS.FUNDING_SWAP);   // GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx
-console.log(PROGRAM_IDS.EXOTIC_VAULT);   // 6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P
+console.log(PROGRAM_IDS.SHARED_ORACLE);    // 81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o
+console.log(PROGRAM_IDS.VOLSWAP);          // FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS
+console.log(PROGRAM_IDS.FUNDING_SWAP);     // GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx
+console.log(PROGRAM_IDS.EXOTIC_VAULT);     // 6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P
+console.log(PROGRAM_IDS.PRIVATE_INTENTS);  // AaZSJxm7jkqb9Tjo38wU66w6owuyrDtqw3ksnyHMN9ow
 ```
 
 ## License
