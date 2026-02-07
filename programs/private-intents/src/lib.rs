@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Token, TokenAccount, Transfer, CloseAccount, Mint};
 
-declare_id!("PvtInt11111111111111111111111111111111111");
+declare_id!("AaZSJxm7jkqb9Tjo38wU66w6owuyrDtqw3ksnyHMN9ow");
 
 pub mod error;
 pub mod state;
@@ -14,20 +15,13 @@ use error::PrivateIntentError;
 /// This program enables users to submit encrypted derivative orders that are
 /// executed by a trusted solver. Orders can be funded with native Solana
 /// collateral or cross-chain collateral bridged via Wormhole.
-///
-/// Key features:
-/// - Encrypted payload: Order parameters are encrypted with NaCl box
-/// - Solver execution: A trusted solver decrypts and executes orders
-/// - Cross-chain: Supports collateral from Ethereum and Arbitrum via Wormhole
-/// - Intent types: Variance swaps, funding swaps, and exotic options
 #[program]
 pub mod private_intents {
     use super::*;
 
     /// Initialize the solver configuration
-    /// Only needs to be called once per deployment
     pub fn initialize_solver(
-        ctx: Context<instructions::InitializeSolver>,
+        ctx: Context<InitializeSolver>,
         solver_pubkey: Pubkey,
         fee_bps: u16,
         min_collateral: u64,
@@ -37,9 +31,8 @@ pub mod private_intents {
     }
 
     /// Submit a private intent with native collateral
-    /// The encrypted payload contains the order parameters
     pub fn submit_intent(
-        ctx: Context<instructions::SubmitIntent>,
+        ctx: Context<SubmitIntent>,
         intent_id: u64,
         intent_type: IntentType,
         collateral_amount: u64,
@@ -57,9 +50,8 @@ pub mod private_intents {
     }
 
     /// Execute a pending intent (solver only)
-    /// The solver decrypts the payload off-chain and provides the parameters
     pub fn execute_intent(
-        ctx: Context<instructions::ExecuteIntent>,
+        ctx: Context<ExecuteIntent>,
         deadline: i64,
         slippage_bps: u16,
         result_position: Pubkey,
@@ -68,19 +60,18 @@ pub mod private_intents {
     }
 
     /// Cancel a pending intent and reclaim collateral (owner only)
-    pub fn cancel_intent(ctx: Context<instructions::CancelIntent>) -> Result<()> {
+    pub fn cancel_intent(ctx: Context<CancelIntent>) -> Result<()> {
         instructions::cancel_intent::handler(ctx)
     }
 
     /// Claim the result of a completed intent (owner only)
-    /// Closes the intent account and returns rent
-    pub fn claim_result(ctx: Context<instructions::ClaimResult>) -> Result<()> {
+    pub fn claim_result(ctx: Context<ClaimResult>) -> Result<()> {
         instructions::claim_result::handler(ctx)
     }
 
     /// Submit an intent with cross-chain collateral (Wormhole bridge)
     pub fn submit_cross_chain_intent(
-        ctx: Context<instructions::BridgeCollateral>,
+        ctx: Context<BridgeCollateral>,
         intent_id: u64,
         intent_type: IntentType,
         collateral_amount: u64,
@@ -100,4 +91,229 @@ pub mod private_intents {
             vaa_hash,
         )
     }
+}
+
+// ============================================================================
+// Account Contexts
+// ============================================================================
+
+#[derive(Accounts)]
+pub struct InitializeSolver<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + SolverConfig::INIT_SPACE,
+        seeds = [SolverConfig::SEED],
+        bump
+    )]
+    pub solver_config: Account<'info, SolverConfig>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(intent_id: u64)]
+pub struct SubmitIntent<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        seeds = [SolverConfig::SEED],
+        bump = solver_config.bump,
+        constraint = solver_config.is_active @ PrivateIntentError::SolverNotActive
+    )]
+    pub solver_config: Account<'info, SolverConfig>,
+
+    #[account(
+        init,
+        payer = owner,
+        space = 8 + EncryptedIntent::INIT_SPACE,
+        seeds = [EncryptedIntent::SEED, owner.key().as_ref(), &intent_id.to_le_bytes()],
+        bump
+    )]
+    pub intent: Account<'info, EncryptedIntent>,
+
+    /// CHECK: Target pool for this intent (validated during execution)
+    pub target_pool: AccountInfo<'info>,
+
+    pub collateral_mint: Account<'info, Mint>,
+
+    #[account(
+        mut,
+        constraint = user_collateral.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint,
+        constraint = user_collateral.owner == owner.key() @ PrivateIntentError::UnauthorizedOwner
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
+
+    #[account(
+        init,
+        payer = owner,
+        seeds = [b"intent_vault", intent.key().as_ref()],
+        bump,
+        token::mint = collateral_mint,
+        token::authority = intent
+    )]
+    pub intent_vault: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ExecuteIntent<'info> {
+    #[account(mut)]
+    pub solver: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [SolverConfig::SEED],
+        bump = solver_config.bump,
+        constraint = solver_config.is_active @ PrivateIntentError::SolverNotActive,
+        constraint = solver_config.solver_pubkey == solver.key() @ PrivateIntentError::UnauthorizedSolver
+    )]
+    pub solver_config: Account<'info, SolverConfig>,
+
+    #[account(
+        mut,
+        seeds = [EncryptedIntent::SEED, intent.owner.as_ref(), &intent.intent_id.to_le_bytes()],
+        bump = intent.bump,
+        constraint = intent.is_executable() @ PrivateIntentError::IntentNotExecutable
+    )]
+    pub intent: Account<'info, EncryptedIntent>,
+
+    /// CHECK: Target pool for execution
+    #[account(
+        constraint = target_pool.key() == intent.target_pool @ PrivateIntentError::InvalidTargetPool
+    )]
+    pub target_pool: AccountInfo<'info>,
+
+    pub collateral_mint: Account<'info, Mint>,
+
+    #[account(
+        mut,
+        seeds = [b"intent_vault", intent.key().as_ref()],
+        bump,
+        constraint = intent_vault.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint
+    )]
+    pub intent_vault: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = solver_collateral.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint,
+        constraint = solver_collateral.owner == solver.key() @ PrivateIntentError::UnauthorizedSolver
+    )]
+    pub solver_collateral: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CancelIntent<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [EncryptedIntent::SEED, owner.key().as_ref(), &intent.intent_id.to_le_bytes()],
+        bump = intent.bump,
+        constraint = intent.owner == owner.key() @ PrivateIntentError::UnauthorizedOwner,
+        constraint = intent.is_cancellable() @ PrivateIntentError::IntentNotCancellable
+    )]
+    pub intent: Account<'info, EncryptedIntent>,
+
+    pub collateral_mint: Account<'info, Mint>,
+
+    #[account(
+        mut,
+        seeds = [b"intent_vault", intent.key().as_ref()],
+        bump,
+        constraint = intent_vault.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint
+    )]
+    pub intent_vault: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = user_collateral.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint,
+        constraint = user_collateral.owner == owner.key() @ PrivateIntentError::UnauthorizedOwner
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimResult<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [EncryptedIntent::SEED, owner.key().as_ref(), &intent.intent_id.to_le_bytes()],
+        bump = intent.bump,
+        constraint = intent.owner == owner.key() @ PrivateIntentError::UnauthorizedOwner,
+        constraint = intent.is_claimable() @ PrivateIntentError::IntentNotExecutable,
+        close = owner
+    )]
+    pub intent: Account<'info, EncryptedIntent>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(intent_id: u64)]
+pub struct BridgeCollateral<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    #[account(
+        seeds = [SolverConfig::SEED],
+        bump = solver_config.bump,
+        constraint = solver_config.is_active @ PrivateIntentError::SolverNotActive
+    )]
+    pub solver_config: Account<'info, SolverConfig>,
+
+    #[account(
+        init,
+        payer = owner,
+        space = 8 + EncryptedIntent::INIT_SPACE,
+        seeds = [EncryptedIntent::SEED, owner.key().as_ref(), &intent_id.to_le_bytes()],
+        bump
+    )]
+    pub intent: Account<'info, EncryptedIntent>,
+
+    /// CHECK: Target pool for this intent
+    pub target_pool: AccountInfo<'info>,
+
+    pub collateral_mint: Account<'info, Mint>,
+
+    #[account(
+        mut,
+        constraint = bridged_collateral.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint,
+        constraint = bridged_collateral.owner == owner.key() @ PrivateIntentError::UnauthorizedOwner
+    )]
+    pub bridged_collateral: Account<'info, TokenAccount>,
+
+    #[account(
+        init,
+        payer = owner,
+        seeds = [b"intent_vault", intent.key().as_ref()],
+        bump,
+        token::mint = collateral_mint,
+        token::authority = intent
+    )]
+    pub intent_vault: Account<'info, TokenAccount>,
+
+    /// CHECK: Wormhole Core Bridge program
+    pub wormhole_program: AccountInfo<'info>,
+
+    /// CHECK: Wormhole posted VAA account
+    pub posted_vaa: AccountInfo<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }

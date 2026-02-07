@@ -1,10 +1,10 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer, Mint};
-use crate::state::{SolverConfig, EncryptedIntent, IntentType, IntentStatus, CollateralSource};
+use anchor_spl::token::{self, Transfer};
+use crate::state::{IntentType, IntentStatus, CollateralSource};
 use crate::error::PrivateIntentError;
 
 pub fn handler(
-    ctx: Context<SubmitIntent>,
+    ctx: Context<crate::SubmitIntent>,
     intent_id: u64,
     intent_type: IntentType,
     collateral_amount: u64,
@@ -65,53 +65,4 @@ pub fn handler(
 
     msg!("Intent {} submitted by {}", intent_id, ctx.accounts.owner.key());
     Ok(())
-}
-
-#[derive(Accounts)]
-#[instruction(intent_id: u64)]
-pub struct SubmitIntent<'info> {
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    #[account(
-        seeds = [SolverConfig::SEED],
-        bump = solver_config.bump,
-        constraint = solver_config.is_active @ PrivateIntentError::SolverNotActive
-    )]
-    pub solver_config: Account<'info, SolverConfig>,
-
-    #[account(
-        init,
-        payer = owner,
-        space = 8 + EncryptedIntent::INIT_SPACE,
-        seeds = [EncryptedIntent::SEED, owner.key().as_ref(), &intent_id.to_le_bytes()],
-        bump
-    )]
-    pub intent: Account<'info, EncryptedIntent>,
-
-    /// Target pool for this intent (validated during execution)
-    /// CHECK: Validated by solver during execution
-    pub target_pool: AccountInfo<'info>,
-
-    pub collateral_mint: Account<'info, Mint>,
-
-    #[account(
-        mut,
-        constraint = user_collateral.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint,
-        constraint = user_collateral.owner == owner.key() @ PrivateIntentError::UnauthorizedOwner
-    )]
-    pub user_collateral: Account<'info, TokenAccount>,
-
-    #[account(
-        init,
-        payer = owner,
-        seeds = [b"intent_vault", intent.key().as_ref()],
-        bump,
-        token::mint = collateral_mint,
-        token::authority = intent
-    )]
-    pub intent_vault: Account<'info, TokenAccount>,
-
-    pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
 }

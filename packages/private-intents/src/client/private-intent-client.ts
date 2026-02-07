@@ -97,7 +97,7 @@ export class PrivateIntentClient {
 
   // Program ID for private-intents
   public static readonly PROGRAM_ID = new PublicKey(
-    'PvtInt11111111111111111111111111111111111'
+    'AaZSJxm7jkqb9Tjo38wU66w6owuyrDtqw3ksnyHMN9ow'
   );
 
   constructor(connection: Connection, wallet: Wallet) {

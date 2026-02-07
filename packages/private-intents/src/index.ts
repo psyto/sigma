@@ -44,7 +44,7 @@ export { CrossChainClient, CollateralSource } from './client/cross-chain-client'
 export { WormholeClient, WormholeConfig } from './cross-chain/wormhole';
 
 // Constants and types
-export const PRIVATE_INTENTS_PROGRAM_ID = 'PvtInt11111111111111111111111111111111111';
+export const PRIVATE_INTENTS_PROGRAM_ID = 'AaZSJxm7jkqb9Tjo38wU66w6owuyrDtqw3ksnyHMN9ow';
 
 export const SEEDS = {
   SOLVER_CONFIG: Buffer.from('solver_config'),

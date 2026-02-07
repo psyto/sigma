@@ -26,7 +26,7 @@ pub enum IntentStatus {
 }
 
 /// Source of collateral
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
 pub enum CollateralSource {
     /// Native Solana collateral
     Native,

@@ -1,13 +1,12 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount, Mint};
-use crate::state::{SolverConfig, EncryptedIntent, IntentType, IntentStatus, CollateralSource};
+use crate::state::{IntentType, IntentStatus, CollateralSource};
 use crate::error::PrivateIntentError;
 
 /// Submit an intent with cross-chain collateral (bridged via Wormhole)
 /// The collateral has already been bridged to Solana via Wormhole
 /// This instruction verifies the VAA and initializes the intent
 pub fn handler(
-    ctx: Context<BridgeCollateral>,
+    ctx: Context<crate::BridgeCollateral>,
     intent_id: u64,
     intent_type: IntentType,
     collateral_amount: u64,
@@ -81,64 +80,4 @@ pub fn handler(
         ctx.accounts.owner.key()
     );
     Ok(())
-}
-
-#[derive(Accounts)]
-#[instruction(intent_id: u64)]
-pub struct BridgeCollateral<'info> {
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    #[account(
-        seeds = [SolverConfig::SEED],
-        bump = solver_config.bump,
-        constraint = solver_config.is_active @ PrivateIntentError::SolverNotActive
-    )]
-    pub solver_config: Account<'info, SolverConfig>,
-
-    #[account(
-        init,
-        payer = owner,
-        space = 8 + EncryptedIntent::INIT_SPACE,
-        seeds = [EncryptedIntent::SEED, owner.key().as_ref(), &intent_id.to_le_bytes()],
-        bump
-    )]
-    pub intent: Account<'info, EncryptedIntent>,
-
-    /// Target pool for this intent
-    /// CHECK: Validated by solver during execution
-    pub target_pool: AccountInfo<'info>,
-
-    /// Collateral mint (bridged token or native USDC via CCTP)
-    pub collateral_mint: Account<'info, Mint>,
-
-    /// Bridged collateral token account (already received via Wormhole)
-    #[account(
-        mut,
-        constraint = bridged_collateral.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint,
-        constraint = bridged_collateral.owner == owner.key() @ PrivateIntentError::UnauthorizedOwner,
-        constraint = bridged_collateral.amount >= collateral_amount @ PrivateIntentError::InsufficientCollateral
-    )]
-    pub bridged_collateral: Account<'info, TokenAccount>,
-
-    #[account(
-        init,
-        payer = owner,
-        seeds = [b"intent_vault", intent.key().as_ref()],
-        bump,
-        token::mint = collateral_mint,
-        token::authority = intent
-    )]
-    pub intent_vault: Account<'info, TokenAccount>,
-
-    /// Wormhole Core Bridge program
-    /// CHECK: Validated by program ID
-    pub wormhole_program: AccountInfo<'info>,
-
-    /// Wormhole posted VAA account
-    /// CHECK: Parsed and validated via CPI
-    pub posted_vaa: AccountInfo<'info>,
-
-    pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
 }

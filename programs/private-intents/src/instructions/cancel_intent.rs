@@ -1,10 +1,9 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer, CloseAccount, Mint};
+use anchor_spl::token::{self, Transfer, CloseAccount};
 use crate::state::{EncryptedIntent, IntentStatus};
-use crate::error::PrivateIntentError;
 
 /// Cancel a pending intent and reclaim collateral
-pub fn handler(ctx: Context<CancelIntent>) -> Result<()> {
+pub fn handler(ctx: Context<crate::CancelIntent>) -> Result<()> {
     let intent = &ctx.accounts.intent;
 
     // Build signer seeds for intent PDA
@@ -49,39 +48,4 @@ pub fn handler(ctx: Context<CancelIntent>) -> Result<()> {
 
     msg!("Intent {} cancelled, {} collateral returned", intent.intent_id, vault_balance);
     Ok(())
-}
-
-#[derive(Accounts)]
-pub struct CancelIntent<'info> {
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    #[account(
-        mut,
-        seeds = [EncryptedIntent::SEED, owner.key().as_ref(), &intent.intent_id.to_le_bytes()],
-        bump = intent.bump,
-        constraint = intent.owner == owner.key() @ PrivateIntentError::UnauthorizedOwner,
-        constraint = intent.is_cancellable() @ PrivateIntentError::IntentNotCancellable
-    )]
-    pub intent: Account<'info, EncryptedIntent>,
-
-    pub collateral_mint: Account<'info, Mint>,
-
-    #[account(
-        mut,
-        seeds = [b"intent_vault", intent.key().as_ref()],
-        bump,
-        constraint = intent_vault.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint
-    )]
-    pub intent_vault: Account<'info, TokenAccount>,
-
-    #[account(
-        mut,
-        constraint = user_collateral.mint == collateral_mint.key() @ PrivateIntentError::InvalidTokenMint,
-        constraint = user_collateral.owner == owner.key() @ PrivateIntentError::UnauthorizedOwner
-    )]
-    pub user_collateral: Account<'info, TokenAccount>,
-
-    pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
 }

@@ -1,8 +1,7 @@
 use anchor_lang::prelude::*;
-use crate::state::SolverConfig;
 
 pub fn handler(
-    ctx: Context<InitializeSolver>,
+    ctx: Context<crate::InitializeSolver>,
     solver_pubkey: Pubkey,
     fee_bps: u16,
     min_collateral: u64,
@@ -22,21 +21,4 @@ pub fn handler(
 
     msg!("Solver initialized: {}", solver_pubkey);
     Ok(())
-}
-
-#[derive(Accounts)]
-pub struct InitializeSolver<'info> {
-    #[account(mut)]
-    pub authority: Signer<'info>,
-
-    #[account(
-        init,
-        payer = authority,
-        space = 8 + SolverConfig::INIT_SPACE,
-        seeds = [SolverConfig::SEED],
-        bump
-    )]
-    pub solver_config: Account<'info, SolverConfig>,
-
-    pub system_program: Program<'info, System>,
 }

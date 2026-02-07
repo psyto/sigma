@@ -7,14 +7,14 @@ shared_oracle = "81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o"
 volswap = "FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS"
 funding_swap = "GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx"
 exotic_vault = "6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P"
-private_intents = "PvtInt11111111111111111111111111111111111"
+private_intents = "AaZSJxm7jkqb9Tjo38wU66w6owuyrDtqw3ksnyHMN9ow"
 
 [programs.devnet]
 shared_oracle = "81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o"
 volswap = "FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS"
 funding_swap = "GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx"
 exotic_vault = "6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P"
-private_intents = "PvtInt11111111111111111111111111111111111"
+private_intents = "AaZSJxm7jkqb9Tjo38wU66w6owuyrDtqw3ksnyHMN9ow"
 
 [registry]
 url = "https://api.apr.dev"
