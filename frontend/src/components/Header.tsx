@@ -1,18 +1,29 @@
 "use client";
 
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import dynamic from "next/dynamic";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { useEffect, useState } from "react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 
+// Dynamic import to prevent hydration mismatch
+const WalletMultiButton = dynamic(
+  () => import("@solana/wallet-adapter-react-ui").then((mod) => mod.WalletMultiButton),
+  { ssr: false }
+);
+
 export function Header() {
   const { publicKey } = useWallet();
   const { connection } = useConnection();
   const [balance, setBalance] = useState<number | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (!publicKey) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!publicKey || !mounted) {
       setBalance(null);
       return;
     }
@@ -29,7 +40,7 @@ export function Header() {
     fetchBalance();
     const interval = setInterval(fetchBalance, 10000);
     return () => clearInterval(interval);
-  }, [publicKey, connection]);
+  }, [publicKey, connection, mounted]);
 
   return (
     <header className="h-16 bg-[var(--card)] border-b border-[var(--border)] flex items-center justify-between px-6">
@@ -40,7 +51,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-4">
-        {publicKey && balance !== null && (
+        {mounted && publicKey && balance !== null && (
           <div className="px-4 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)]">
             <span className="text-sm text-[var(--muted)]">Balance: </span>
             <span className="text-sm font-medium text-[var(--foreground)]">
@@ -48,7 +59,7 @@ export function Header() {
             </span>
           </div>
         )}
-        <WalletMultiButton />
+        {mounted && <WalletMultiButton />}
       </div>
     </header>
   );

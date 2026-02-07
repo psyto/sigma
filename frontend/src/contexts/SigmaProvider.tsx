@@ -12,6 +12,12 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { AnchorProvider } from "@coral-xyz/anchor";
 import { SigmaClient } from "@sigma-protocol/sdk";
 
+// Import IDLs
+import oracleIdl from "@/idl/shared_oracle.json";
+import volswapIdl from "@/idl/volswap.json";
+import fundingSwapIdl from "@/idl/funding_swap.json";
+import exoticVaultIdl from "@/idl/exotic_vault.json";
+
 // Transaction state
 export interface TransactionState {
   pending: boolean;
@@ -72,7 +78,12 @@ export function SigmaProvider({ children }: SigmaProviderProps) {
         { commitment: "confirmed" }
       );
 
-      return new SigmaClient(provider, { cluster: "localnet" });
+      return new SigmaClient(provider, { cluster: "localnet" }, {
+        oracle: oracleIdl,
+        volswap: volswapIdl,
+        fundingSwap: fundingSwapIdl,
+        exoticVault: exoticVaultIdl,
+      });
     } catch (err) {
       console.error("Failed to create SigmaClient:", err);
       return null;
