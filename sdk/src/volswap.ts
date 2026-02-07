@@ -114,6 +114,21 @@ export class VolswapClient {
   }
 
   /**
+   * Get all variance pools
+   */
+  async getAllPools(): Promise<{ publicKey: PublicKey; account: VariancePool }[]> {
+    try {
+      const accounts = await (this.program.account as any).variancePool.all();
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as VariancePool,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Get pool address
    */
   getPoolAddress(underlyingMint: PublicKey): PublicKey {
@@ -275,6 +290,30 @@ export class VolswapClient {
     }
   }
 
+  /**
+   * Get all positions for a user
+   */
+  async getUserPositions(
+    user: PublicKey
+  ): Promise<{ publicKey: PublicKey; account: VariancePosition }[]> {
+    try {
+      const accounts = await (this.program.account as any).variancePosition.all([
+        {
+          memcmp: {
+            offset: 8, // After discriminator
+            bytes: user.toBase58(),
+          },
+        },
+      ]);
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as VariancePosition,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   // ============================================================================
   // Epoch Methods
   // ============================================================================
@@ -385,6 +424,30 @@ export class VolswapClient {
       return await (this.program.account as any).liquidityProvider.fetch(lpAccount) as unknown as LiquidityProvider;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get all LP positions for a user
+   */
+  async getUserLPPositions(
+    user: PublicKey
+  ): Promise<{ publicKey: PublicKey; account: LiquidityProvider }[]> {
+    try {
+      const accounts = await (this.program.account as any).liquidityProvider.all([
+        {
+          memcmp: {
+            offset: 8, // After discriminator
+            bytes: user.toBase58(),
+          },
+        },
+      ]);
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as LiquidityProvider,
+      }));
+    } catch {
+      return [];
     }
   }
 }

@@ -110,6 +110,21 @@ export class ExoticVaultClient {
   }
 
   /**
+   * Get all exotic vaults
+   */
+  async getAllVaults(): Promise<{ publicKey: PublicKey; account: ExoticVault }[]> {
+    try {
+      const accounts = await (this.program.account as any).exoticVault.all();
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as ExoticVault,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Get vault address
    */
   getVaultAddress(underlyingMint: PublicKey): PublicKey {

@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { ShoppingCart, Tag, Clock, TrendingUp, Wallet, AlertCircle, Filter } from "lucide-react";
+import { ShoppingCart, Tag, Clock, TrendingUp, Wallet, AlertCircle, Filter, RefreshCw } from "lucide-react";
+import { useVolswap } from "@/hooks/useVolswap";
+import { useFundingSwap } from "@/hooks/useFundingSwap";
+import { useExoticVault } from "@/hooks/useExoticVault";
 
+// Mock listings for the browse tab - in production these would come from an on-chain orderbook
 const mockListings = [
   {
     id: 1,
@@ -59,49 +63,126 @@ const mockListings = [
   },
 ];
 
-const myPositions = [
-  {
-    id: 1,
-    protocol: "VolSwap",
-    type: "Long Variance",
-    strike: 30,
-    notional: 15000,
-    currentValue: 16200,
-    expiry: "2024-02-20",
-    daysLeft: 17,
-    listed: false,
-  },
-  {
-    id: 2,
-    protocol: "ExoticVault",
-    type: "Asian Call",
-    strike: 105,
-    notional: 8000,
-    currentValue: 8450,
-    expiry: "2024-03-01",
-    daysLeft: 26,
-    listed: true,
-    askPrice: 420,
-  },
-];
-
 const protocolColors: Record<string, string> = {
   VolSwap: "#8b5cf6",
   FundingSwap: "#06b6d4",
   ExoticVault: "#f59e0b",
 };
 
+interface UnifiedPosition {
+  id: string;
+  protocol: "VolSwap" | "FundingSwap" | "ExoticVault";
+  type: string;
+  strike: number;
+  notional: number;
+  currentValue: number;
+  expiry: string;
+  daysLeft: number;
+  listed: boolean;
+  askPrice?: number;
+}
+
 export default function SecondaryMarketPage() {
-  const { connected } = useWallet();
+  const { connected, publicKey } = useWallet();
+  const { positions: volswapPositions, loading: volswapLoading } = useVolswap();
+  const { positions: fundingPositions, loading: fundingLoading } = useFundingSwap();
+  const { options: exoticOptions, loading: exoticLoading } = useExoticVault();
+
   const [activeTab, setActiveTab] = useState<"browse" | "my-positions">("browse");
   const [filterProtocol, setFilterProtocol] = useState<string>("all");
   const [showListingModal, setShowListingModal] = useState(false);
-  const [selectedPosition, setSelectedPosition] = useState<any>(null);
+  const [selectedPosition, setSelectedPosition] = useState<UnifiedPosition | null>(null);
   const [askPrice, setAskPrice] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loading = volswapLoading || fundingLoading || exoticLoading;
+
+  // Combine all user positions into a unified format
+  const myPositions = useMemo<UnifiedPosition[]>(() => {
+    const positions: UnifiedPosition[] = [];
+    const now = Math.floor(Date.now() / 1000);
+
+    // Add VolSwap positions
+    volswapPositions.forEach((pos, index) => {
+      // Access underlying SDK data through any
+      const rawPos = pos as any;
+      const expiryTime = rawPos.epoch?.endTime?.toNumber?.() || now + 86400 * 14;
+      const daysLeft = Math.max(0, Math.ceil((expiryTime - now) / 86400));
+      const expiryDate = new Date(expiryTime * 1000);
+      const isLong = rawPos.isLong ?? true;
+      const notional = rawPos.notional?.toNumber?.() / 1e6 || 10000;
+      const strike = rawPos.strikeVarianceBps?.toNumber?.() / 100 || 35;
+
+      positions.push({
+        id: `volswap-${index}`,
+        protocol: "VolSwap",
+        type: isLong ? "Long Variance" : "Short Variance",
+        strike,
+        notional,
+        currentValue: notional + (pos.pnlUsd || 0),
+        expiry: expiryDate.toISOString().split("T")[0],
+        daysLeft,
+        listed: false,
+      });
+    });
+
+    // Add FundingSwap positions
+    fundingPositions.forEach((pos, index) => {
+      // Use daysRemaining from computed field
+      const daysLeft = pos.daysRemaining || 14;
+      const futureDate = new Date((now + daysLeft * 86400) * 1000);
+
+      // Access underlying SDK data through any
+      const rawPos = pos as any;
+      const isReceiveFixed = rawPos.isReceiveFixed ?? true;
+      const notional = rawPos.notional?.toNumber?.() / 1e6 || 50000;
+      const fixedRate = rawPos.fixedRateBps?.toNumber?.() / 10000 || 0.04;
+
+      positions.push({
+        id: `funding-${index}`,
+        protocol: "FundingSwap",
+        type: isReceiveFixed ? "Receive Fixed" : "Pay Fixed",
+        strike: fixedRate,
+        notional,
+        currentValue: notional + (pos.pnlUsd || 0),
+        expiry: futureDate.toISOString().split("T")[0],
+        daysLeft,
+        listed: false,
+      });
+    });
+
+    // Add ExoticVault options
+    exoticOptions.forEach((opt, index) => {
+      // Use computed fields from OptionData
+      const daysLeft = opt.daysRemaining || 7;
+      const futureDate = new Date((now + daysLeft * 86400) * 1000);
+
+      positions.push({
+        id: `exotic-${index}`,
+        protocol: "ExoticVault",
+        type: opt.optionTypeLabel || "Option",
+        strike: opt.strikePriceUsd || 100,
+        notional: opt.payoutUsd || 5000,
+        currentValue: (opt.payoutUsd || 5000) * 1.1,
+        expiry: futureDate.toISOString().split("T")[0],
+        daysLeft,
+        listed: false,
+      });
+    });
+
+    return positions;
+  }, [volswapPositions, fundingPositions, exoticOptions]);
 
   const filteredListings = filterProtocol === "all"
     ? mockListings
     : mockListings.filter((l) => l.protocol === filterProtocol);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    // Hooks auto-refresh on mount
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    setRefreshing(false);
+  };
 
   const handleBuy = (listing: any) => {
     if (!connected) {
@@ -109,28 +190,45 @@ export default function SecondaryMarketPage() {
       return;
     }
     console.log("Buying position:", listing);
+    // In production, this would call a secondary market contract
   };
 
-  const handleList = (position: any) => {
+  const handleList = (position: UnifiedPosition) => {
     setSelectedPosition(position);
     setShowListingModal(true);
   };
 
   const handleConfirmListing = () => {
     console.log("Listing position:", selectedPosition, "at", askPrice);
+    // In production, this would call a secondary market contract
     setShowListingModal(false);
     setAskPrice("");
   };
 
+  // Calculate aggregate stats
+  const totalListedValue = mockListings.reduce((sum, l) => sum + l.currentValue, 0);
+  const avgDiscount = mockListings.reduce((sum, l) => sum + l.discount, 0) / mockListings.length;
+  const avgDaysToExpiry = mockListings.reduce((sum, l) => sum + l.daysLeft, 0) / mockListings.length;
+
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-[var(--foreground)] mb-2">
-          Secondary Market
-        </h1>
-        <p className="text-[var(--muted)]">
-          Trade positions before expiry. Buy discounted positions or exit early.
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[var(--foreground)] mb-2">
+            Secondary Market
+          </h1>
+          <p className="text-[var(--muted)]">
+            Trade positions before expiry. Buy discounted positions or exit early.
+          </p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
 
       {/* Key Metrics */}
@@ -152,7 +250,7 @@ export default function SecondaryMarketPage() {
             <span className="text-sm text-[var(--muted)]">Total Value Listed</span>
           </div>
           <p className="text-2xl font-bold text-[var(--foreground)]">
-            $93.3K
+            ${(totalListedValue / 1000).toFixed(1)}K
           </p>
           <p className="text-sm text-[var(--muted)]">Notional value</p>
         </div>
@@ -162,8 +260,8 @@ export default function SecondaryMarketPage() {
             <TrendingUp className="w-4 h-4 text-[#f59e0b]" />
             <span className="text-sm text-[var(--muted)]">Avg Discount</span>
           </div>
-          <p className="text-2xl font-bold text-[var(--success)]">
-            +2.7%
+          <p className={`text-2xl font-bold ${avgDiscount > 0 ? "text-[var(--success)]" : "text-[var(--danger)]"}`}>
+            {avgDiscount > 0 ? "+" : ""}{avgDiscount.toFixed(1)}%
           </p>
           <p className="text-sm text-[var(--muted)]">From mark-to-market</p>
         </div>
@@ -174,7 +272,7 @@ export default function SecondaryMarketPage() {
             <span className="text-sm text-[var(--muted)]">Avg Days to Expiry</span>
           </div>
           <p className="text-2xl font-bold text-[var(--foreground)]">
-            16
+            {Math.round(avgDaysToExpiry)}
           </p>
           <p className="text-sm text-[var(--muted)]">Listed positions</p>
         </div>
@@ -200,7 +298,7 @@ export default function SecondaryMarketPage() {
               : "bg-[var(--card)] text-[var(--muted)] border border-[var(--border)] hover:text-[var(--foreground)]"
           }`}
         >
-          My Positions
+          My Positions {myPositions.length > 0 && `(${myPositions.length})`}
         </button>
       </div>
 
@@ -218,7 +316,7 @@ export default function SecondaryMarketPage() {
                 onClick={() => setFilterProtocol(protocol)}
                 className={`px-3 py-1 rounded-lg text-sm transition-colors ${
                   filterProtocol === protocol
-                    ? "bg-[var(--primary)]20 text-[var(--primary)] border border-[var(--primary)]"
+                    ? "bg-[var(--primary)]/20 text-[var(--primary)] border border-[var(--primary)]"
                     : "bg-[var(--background)] text-[var(--muted)] border border-[var(--border)] hover:text-[var(--foreground)]"
                 }`}
               >
@@ -320,10 +418,23 @@ export default function SecondaryMarketPage() {
               <Wallet className="w-12 h-12 text-[var(--muted)] mx-auto mb-4" />
               <p className="text-[var(--muted)]">Connect your wallet to view positions</p>
             </div>
+          ) : loading ? (
+            <div className="space-y-4">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="animate-pulse flex items-center gap-4 p-4 border border-[var(--border)] rounded-lg">
+                  <div className="h-6 bg-[var(--border)] rounded w-20" />
+                  <div className="h-6 bg-[var(--border)] rounded w-32 flex-1" />
+                  <div className="h-6 bg-[var(--border)] rounded w-24" />
+                </div>
+              ))}
+            </div>
           ) : myPositions.length === 0 ? (
             <div className="text-center py-12">
               <AlertCircle className="w-12 h-12 text-[var(--muted)] mx-auto mb-4" />
               <p className="text-[var(--muted)]">No positions to list</p>
+              <p className="text-sm text-[var(--muted)] mt-2">
+                Open positions in VolSwap, FundingSwap, or ExoticVault to trade them here.
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -368,18 +479,18 @@ export default function SecondaryMarketPage() {
                       </td>
                       <td className="py-4 px-4">
                         {position.listed ? (
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-[var(--success)]20 text-[var(--success)]">
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-[var(--success)]/20 text-[var(--success)]">
                             Listed @ ${position.askPrice}
                           </span>
                         ) : (
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-[var(--muted)]20 text-[var(--muted)]">
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-[var(--muted)]/20 text-[var(--muted)]">
                             Not Listed
                           </span>
                         )}
                       </td>
                       <td className="py-4 px-4">
                         {position.listed ? (
-                          <button className="px-3 py-1 text-sm rounded bg-[var(--danger)]20 text-[var(--danger)] hover:bg-[var(--danger)]30 transition-colors">
+                          <button className="px-3 py-1 text-sm rounded bg-[var(--danger)]/20 text-[var(--danger)] hover:bg-[var(--danger)]/30 transition-colors">
                             Cancel
                           </button>
                         ) : (
@@ -443,7 +554,7 @@ export default function SecondaryMarketPage() {
               </p>
             </div>
 
-            <div className="p-3 rounded-lg bg-[var(--primary)]20 mb-4">
+            <div className="p-3 rounded-lg bg-[var(--primary)]/20 mb-4">
               <p className="text-xs text-[var(--muted)]">
                 A 0.5% fee will be charged upon successful sale. You can cancel the listing anytime before it sells.
               </p>
@@ -475,7 +586,7 @@ export default function SecondaryMarketPage() {
         </h2>
         <div className="grid grid-cols-4 gap-6">
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[var(--primary)]20 flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-[var(--primary)]/20 flex items-center justify-center mb-3">
               <span className="text-[var(--primary)] font-bold">1</span>
             </div>
             <h3 className="font-medium text-[var(--foreground)] mb-2">
@@ -486,7 +597,7 @@ export default function SecondaryMarketPage() {
             </p>
           </div>
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[var(--primary)]20 flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-[var(--primary)]/20 flex items-center justify-center mb-3">
               <span className="text-[var(--primary)] font-bold">2</span>
             </div>
             <h3 className="font-medium text-[var(--foreground)] mb-2">
@@ -497,7 +608,7 @@ export default function SecondaryMarketPage() {
             </p>
           </div>
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[var(--primary)]20 flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-[var(--primary)]/20 flex items-center justify-center mb-3">
               <span className="text-[var(--primary)] font-bold">3</span>
             </div>
             <h3 className="font-medium text-[var(--foreground)] mb-2">
@@ -508,7 +619,7 @@ export default function SecondaryMarketPage() {
             </p>
           </div>
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[var(--primary)]20 flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-[var(--primary)]/20 flex items-center justify-center mb-3">
               <span className="text-[var(--primary)] font-bold">4</span>
             </div>
             <h3 className="font-medium text-[var(--foreground)] mb-2">

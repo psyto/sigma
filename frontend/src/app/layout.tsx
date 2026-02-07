@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/contexts/WalletProvider";
+import { SigmaProvider } from "@/contexts/SigmaProvider";
+import { ToastProvider } from "@/components/Toast";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 
@@ -31,13 +33,17 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <WalletProvider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <div className="flex-1 ml-64">
-              <Header />
-              <main className="p-6">{children}</main>
-            </div>
-          </div>
+          <SigmaProvider>
+            <ToastProvider>
+              <div className="flex min-h-screen">
+                <Sidebar />
+                <div className="flex-1 ml-64">
+                  <Header />
+                  <main className="p-6">{children}</main>
+                </div>
+              </div>
+            </ToastProvider>
+          </SigmaProvider>
         </WalletProvider>
       </body>
     </html>

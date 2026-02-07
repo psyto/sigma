@@ -108,6 +108,21 @@ export class FundingSwapClient {
   }
 
   /**
+   * Get all funding pools
+   */
+  async getAllPools(): Promise<{ publicKey: PublicKey; account: FundingPool }[]> {
+    try {
+      const accounts = await (this.program.account as any).fundingPool.all();
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as FundingPool,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Get pool address
    */
   getPoolAddress(marketSymbol: string): PublicKey {
@@ -313,6 +328,30 @@ export class FundingSwapClient {
       },
     ]);
     return accounts.map((a: any) => a.account as FundingSwapPosition);
+  }
+
+  /**
+   * Get all positions for a user across all pools
+   */
+  async getAllUserPositions(
+    user: PublicKey
+  ): Promise<{ publicKey: PublicKey; account: FundingSwapPosition }[]> {
+    try {
+      const accounts = await (this.program.account as any).fundingSwapPosition.all([
+        {
+          memcmp: {
+            offset: 8, // After discriminator
+            bytes: user.toBase58(),
+          },
+        },
+      ]);
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as FundingSwapPosition,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   // ============================================================================

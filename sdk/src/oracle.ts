@@ -100,6 +100,21 @@ export class OracleClient {
   }
 
   /**
+   * Get all price feeds
+   */
+  async getAllPriceFeeds(): Promise<{ publicKey: PublicKey; account: PriceFeed }[]> {
+    try {
+      const accounts = await (this.program.account as any).priceFeed.all();
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as PriceFeed,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Get the latest price for an asset
    */
   async getLatestPrice(assetMint: PublicKey): Promise<BN | null> {
@@ -157,6 +172,21 @@ export class OracleClient {
     }
   }
 
+  /**
+   * Get all funding feeds
+   */
+  async getAllFundingFeeds(): Promise<{ publicKey: PublicKey; account: FundingFeed }[]> {
+    try {
+      const accounts = await (this.program.account as any).fundingFeed.all();
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as FundingFeed,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   // ============================================================================
   // Variance Tracker Methods
   // ============================================================================
@@ -208,6 +238,21 @@ export class OracleClient {
       return await (this.program.account as any).varianceTracker.fetch(varianceTracker) as unknown as VarianceTracker;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get all variance trackers
+   */
+  async getAllVarianceTrackers(): Promise<{ publicKey: PublicKey; account: VarianceTracker }[]> {
+    try {
+      const accounts = await (this.program.account as any).varianceTracker.all();
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as VarianceTracker,
+      }));
+    } catch {
+      return [];
     }
   }
 
@@ -275,6 +320,21 @@ export class OracleClient {
       return await (this.program.account as any).volatilityIndex.fetch(volatilityIndex) as unknown as VolatilityIndex;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get all volatility indices
+   */
+  async getAllVolatilityIndices(): Promise<{ publicKey: PublicKey; account: VolatilityIndex }[]> {
+    try {
+      const accounts = await (this.program.account as any).volatilityIndex.all();
+      return accounts.map((a: any) => ({
+        publicKey: a.publicKey,
+        account: a.account as VolatilityIndex,
+      }));
+    } catch {
+      return [];
     }
   }
 

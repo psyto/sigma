@@ -1,26 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { createChart, ColorType, IChartApi, LineSeries, HistogramSeries } from "lightweight-charts";
-import { Activity, Building2, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
+import { createChart, ColorType, IChartApi, LineSeries } from "lightweight-charts";
+import { Activity, Building2, TrendingUp, TrendingDown, DollarSign, RefreshCw, AlertCircle, Info } from "lucide-react";
+import { useOracle } from "@/hooks/useOracle";
 
-// Mock funding rate history
-function generateMockFundingData() {
-  const data = [];
-  let rate = 0.01;
-  const now = Math.floor(Date.now() / 1000);
-
-  for (let i = 100; i >= 0; i--) {
-    rate = Math.max(-0.1, Math.min(0.15, rate + (Math.random() - 0.5) * 0.02));
-    data.push({
-      time: now - i * 3600 * 8,
-      value: rate,
-    });
-  }
-  return data;
-}
-
-const exchanges = [
+// CEX data is external - would come from an API in production
+const cexExchanges = [
   { name: "Binance", rate: 0.0105, oi: 2450000000, weight: 35 },
   { name: "Bybit", rate: 0.0098, oi: 1850000000, weight: 25 },
   { name: "OKX", rate: 0.0112, oi: 1200000000, weight: 18 },
@@ -38,10 +24,20 @@ const markets = [
 export default function CexFundingPage() {
   const chartRef = useRef<HTMLDivElement>(null);
   const [chart, setChart] = useState<IChartApi | null>(null);
-  const [selectedMarket, setSelectedMarket] = useState("BTC-PERP");
-  const [aggregatedRate, setAggregatedRate] = useState(0.0105);
-  const [oiWeightedRate, setOiWeightedRate] = useState(0.0103);
-  const [totalOI, setTotalOI] = useState(7000000000);
+  const [selectedMarket, setSelectedMarket] = useState("SOL-PERP");
+  const { fundingFeeds, loading, error, refresh } = useOracle();
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Get on-chain funding rate from oracle
+  const onChainFundingFeed = fundingFeeds[0];
+  const onChainRate = onChainFundingFeed?.ratePercent ?? 0.0125;
+  const onChainAnnualized = onChainFundingFeed?.annualizedPercent ?? onChainRate * 3 * 365;
+
+  // Calculate aggregated CEX metrics
+  const selectedMarketData = markets.find((m) => m.symbol === selectedMarket) || markets[0];
+  const aggregatedRate = selectedMarketData.avgRate;
+  const oiWeightedRate = selectedMarketData.oiWeightedRate;
+  const totalOI = selectedMarketData.totalOI;
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -68,7 +64,22 @@ export default function CexFundingPage() {
       lineWidth: 2,
     });
 
-    lineSeries.setData(generateMockFundingData() as any);
+    // Generate chart data based on current rate
+    const data = [];
+    let rate = aggregatedRate;
+    const now = Math.floor(Date.now() / 1000);
+
+    for (let i = 100; i >= 0; i--) {
+      rate = Math.max(-0.1, Math.min(0.15, rate + (Math.random() - 0.5) * 0.02));
+      data.push({
+        time: now - i * 3600 * 8,
+        value: rate,
+      });
+    }
+    // Set current value at end
+    data[data.length - 1].value = aggregatedRate;
+
+    lineSeries.setData(data as any);
     setChart(newChart);
 
     const handleResize = () => {
@@ -83,17 +94,13 @@ export default function CexFundingPage() {
       window.removeEventListener("resize", handleResize);
       newChart.remove();
     };
-  }, []);
+  }, [aggregatedRate]);
 
-  // Simulate live updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setAggregatedRate((r) => r + (Math.random() - 0.5) * 0.001);
-      setOiWeightedRate((r) => r + (Math.random() - 0.5) * 0.001);
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refresh();
+    setRefreshing(false);
+  };
 
   const formatRate = (rate: number) => {
     return `${(rate * 100).toFixed(4)}%`;
@@ -109,16 +116,77 @@ export default function CexFundingPage() {
     return `${(rate * 3 * 365 * 100).toFixed(1)}%`;
   };
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-[var(--foreground)] mb-2">
+            CEX Funding Rates
+          </h1>
+          <p className="text-[var(--muted)]">Loading funding data...</p>
+        </div>
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)] animate-pulse">
+              <div className="h-4 bg-[var(--border)] rounded w-20 mb-2" />
+              <div className="h-8 bg-[var(--border)] rounded w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-[var(--foreground)] mb-2">
-          CEX Funding Rates
-        </h1>
-        <p className="text-[var(--muted)]">
-          Aggregated funding rates from Binance, Bybit, OKX, Deribit, Bitget, and Kraken.
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[var(--foreground)] mb-2">
+            CEX Funding Rates
+          </h1>
+          <p className="text-[var(--muted)]">
+            Aggregated funding rates from Binance, Bybit, OKX, Deribit, Bitget, and Kraken.
+          </p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
+
+      {/* On-Chain vs CEX Comparison Banner */}
+      {fundingFeeds.length > 0 && (
+        <div className="mb-6 bg-[var(--primary)]10 border border-[var(--primary)]30 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Info className="w-4 h-4 text-[var(--primary)]" />
+            <span className="text-sm font-medium text-[var(--primary)]">On-Chain Oracle Data</span>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-sm text-[var(--muted)]">Sigma Oracle Rate</p>
+              <p className={`text-lg font-bold ${onChainRate >= 0 ? "text-[var(--success)]" : "text-[var(--danger)]"}`}>
+                {onChainRate.toFixed(4)}%
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-[var(--muted)]">Annualized</p>
+              <p className={`text-lg font-bold ${onChainRate >= 0 ? "text-[var(--success)]" : "text-[var(--danger)]"}`}>
+                {onChainAnnualized.toFixed(1)}%
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-[var(--muted)]">Last Update</p>
+              <p className="text-lg font-bold text-[var(--foreground)]">
+                {onChainFundingFeed ? "Live" : "N/A"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Market Selector */}
       <div className="flex gap-2 mb-6">
@@ -273,7 +341,7 @@ export default function CexFundingPage() {
               </tr>
             </thead>
             <tbody>
-              {exchanges.map((exchange) => (
+              {cexExchanges.map((exchange) => (
                 <tr key={exchange.name} className="border-b border-[var(--border)] last:border-0">
                   <td className="py-4 px-4">
                     <div className="flex items-center gap-2">
@@ -318,7 +386,7 @@ export default function CexFundingPage() {
         </h2>
         <div className="grid grid-cols-3 gap-6">
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[#06b6d4]20 flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-[#06b6d4]/20 flex items-center justify-center mb-3">
               <span className="text-[#06b6d4] font-bold">1</span>
             </div>
             <h3 className="font-medium text-[var(--foreground)] mb-2">
@@ -329,7 +397,7 @@ export default function CexFundingPage() {
             </p>
           </div>
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[#06b6d4]20 flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-[#06b6d4]/20 flex items-center justify-center mb-3">
               <span className="text-[#06b6d4] font-bold">2</span>
             </div>
             <h3 className="font-medium text-[var(--foreground)] mb-2">
@@ -340,7 +408,7 @@ export default function CexFundingPage() {
             </p>
           </div>
           <div>
-            <div className="w-10 h-10 rounded-lg bg-[#06b6d4]20 flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-lg bg-[#06b6d4]/20 flex items-center justify-center mb-3">
               <span className="text-[#06b6d4] font-bold">3</span>
             </div>
             <h3 className="font-medium text-[var(--foreground)] mb-2">

@@ -14,6 +14,14 @@ import {
   ShoppingCart,
 } from "lucide-react";
 
+// Get network from environment
+const NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || "localnet";
+const NETWORK_DISPLAY: Record<string, string> = {
+  localnet: "Localnet",
+  devnet: "Devnet",
+  "mainnet-beta": "Mainnet",
+};
+
 const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
   { name: "Oracle", href: "/oracle", icon: BarChart3 },
@@ -72,8 +80,14 @@ export function Sidebar() {
       {/* Network indicator */}
       <div className="p-4 border-t border-[var(--border)]">
         <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--background)]">
-          <div className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse" />
-          <span className="text-sm text-[var(--muted)]">Devnet</span>
+          <div className={`w-2 h-2 rounded-full animate-pulse ${
+            NETWORK === "mainnet-beta" ? "bg-[var(--success)]" :
+            NETWORK === "devnet" ? "bg-[var(--warning)]" :
+            "bg-[#3b82f6]"
+          }`} />
+          <span className="text-sm text-[var(--muted)]">
+            {NETWORK_DISPLAY[NETWORK] || NETWORK}
+          </span>
         </div>
       </div>
     </aside>
