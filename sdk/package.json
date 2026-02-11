@@ -26,6 +26,11 @@
   ],
   "author": "Sigma Protocol",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/psyto/sigma.git",
+    "directory": "sdk"
+  },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.95.0",
