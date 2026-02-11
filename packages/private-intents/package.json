@@ -26,7 +26,7 @@
     "anchor"
   ],
   "dependencies": {
-    "@privacy-suite/crypto": "file:../../../veil/packages/crypto",
+    "@privacy-suite/crypto": "^0.2.0",
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.95.0",
     "@solana/spl-token": "^0.4.0",
