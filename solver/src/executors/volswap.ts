@@ -1,6 +1,13 @@
-import { PublicKey, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
-import { AnchorProvider, Wallet, BN } from '@coral-xyz/anchor';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { AnchorProvider, Wallet, BN, Program } from '@coral-xyz/anchor';
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { VarianceSwapIntent } from '@sigma-protocol/private-intents';
+import {
+  PROGRAM_IDS,
+  findVariancePoolPDA,
+  findPoolVaultPDA,
+  findVariancePositionPDA,
+} from '@sigma-protocol/sdk';
 import { IntentData } from '../solver';
 
 /**
@@ -14,13 +21,15 @@ export interface ExecutorResult {
 /**
  * Executor for variance swap intents
  *
- * Handles opening long/short variance positions via CPI to the VolSwap program
+ * Handles opening long/short variance positions via the VolSwap program
  */
 export class VolswapExecutor {
   private provider: AnchorProvider;
+  private program: Program;
 
-  constructor(provider: AnchorProvider) {
+  constructor(provider: AnchorProvider, idl?: any) {
     this.provider = provider;
+    this.program = new Program(idl, provider);
   }
 
   /**
@@ -43,30 +52,81 @@ export class VolswapExecutor {
     console.log(`  Premium Limit: ${params.premiumLimit.toString()}`);
     console.log(`  Slippage: ${params.slippageBps} bps`);
 
-    // Derive position PDA
-    const [positionPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from('position'),
-        intent.targetPool.toBuffer(),
-        intent.owner.toBuffer(),
-        // Note: epoch would need to be fetched from pool state
-        Buffer.from(new BN(0).toArray('le', 8)),
-      ],
-      new PublicKey('FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS') // VOLSWAP program ID
+    // Fetch pool state to get current epoch
+    const poolData = await (this.program.account as any).variancePool.fetch(
+      intent.targetPool
+    );
+    if (!poolData) {
+      throw new Error(`Pool not found: ${intent.targetPool.toBase58()}`);
+    }
+
+    const currentEpoch: BN = poolData.currentEpoch;
+
+    // Validate the position before executing
+    const validation = await this.validatePosition(
+      intent.targetPool,
+      poolData,
+      params.notional,
+      params.premiumLimit,
+      params.isLong
+    );
+    if (!validation.valid) {
+      throw new Error(`Position validation failed: ${validation.reason}`);
+    }
+
+    // Derive PDAs
+    const [poolVault] = findPoolVaultPDA(intent.targetPool);
+    const [positionPda] = findVariancePositionPDA(
+      intent.targetPool,
+      solverWallet.publicKey,
+      currentEpoch
     );
 
-    // TODO: Implement actual CPI to VolSwap program
-    // This would:
-    // 1. Transfer collateral from intent vault to pool vault
-    // 2. Call open_long or open_short based on params.isLong
-    // 3. Call execute_intent on private-intents to record result
+    // Get solver's collateral token account
+    const userCollateral = getAssociatedTokenAddressSync(
+      intent.collateralMint,
+      solverWallet.publicKey
+    );
 
-    // For now, return a mock result
+    // Build and send the appropriate instruction
+    let signature: string;
+
+    if (params.isLong) {
+      signature = await this.program.methods
+        .openLong(params.notional, params.premiumLimit)
+        .accounts({
+          user: solverWallet.publicKey,
+          pool: intent.targetPool,
+          position: positionPda,
+          userCollateral,
+          poolVault,
+          collateralMint: intent.collateralMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    } else {
+      signature = await this.program.methods
+        .openShort(params.notional, params.premiumLimit)
+        .accounts({
+          user: solverWallet.publicKey,
+          pool: intent.targetPool,
+          position: positionPda,
+          userCollateral,
+          poolVault,
+          collateralMint: intent.collateralMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    }
+
     console.log(`  Position PDA: ${positionPda.toBase58()}`);
+    console.log(`  Signature: ${signature}`);
 
     return {
       positionPubkey: positionPda,
-      signature: 'mock_signature_volswap',
+      signature,
     };
   }
 
@@ -78,9 +138,13 @@ export class VolswapExecutor {
     notional: BN,
     isLong: boolean
   ): Promise<BN> {
-    // TODO: Fetch pool state and calculate premium
-    // Premium = notional * fee_rate_bps / 10000 * direction_multiplier
-    return new BN(0);
+    const poolData = await (this.program.account as any).variancePool.fetch(poolPubkey);
+    if (!poolData) return new BN(0);
+
+    // Premium = notional * feeRateBps / 10000
+    const feeRate = new BN(poolData.feeRateBps);
+    const premium = notional.mul(feeRate).div(new BN(10000));
+    return premium;
   }
 
   /**
@@ -88,15 +152,32 @@ export class VolswapExecutor {
    */
   async validatePosition(
     poolPubkey: PublicKey,
+    poolData: any,
     notional: BN,
     premiumLimit: BN,
     isLong: boolean
   ): Promise<{ valid: boolean; reason?: string }> {
-    // TODO: Fetch pool state and validate:
-    // - Pool is active
-    // - Notional within min/max bounds
-    // - Premium within limit
-    // - Sufficient liquidity
+    if (!poolData.isActive) {
+      return { valid: false, reason: 'Pool is not active' };
+    }
+
+    if (notional.lt(poolData.minNotional)) {
+      return { valid: false, reason: `Notional ${notional.toString()} below minimum ${poolData.minNotional.toString()}` };
+    }
+
+    if (notional.gt(poolData.maxNotional)) {
+      return { valid: false, reason: `Notional ${notional.toString()} exceeds maximum ${poolData.maxNotional.toString()}` };
+    }
+
+    // Calculate premium and check against limit
+    const premium = await this.calculatePremium(poolPubkey, notional, isLong);
+    if (isLong && premium.gt(premiumLimit)) {
+      return { valid: false, reason: `Premium ${premium.toString()} exceeds limit ${premiumLimit.toString()}` };
+    }
+    if (!isLong && premium.lt(premiumLimit)) {
+      return { valid: false, reason: `Premium ${premium.toString()} below minimum ${premiumLimit.toString()}` };
+    }
+
     return { valid: true };
   }
 }

@@ -32,6 +32,11 @@ export interface SolverConfig {
   encryptionKeypair: EncryptionKeypair;
   pollIntervalMs: number;
   maxSlippageBps: number;
+  idls?: {
+    volswap?: any;
+    fundingSwap?: any;
+    exoticVault?: any;
+  };
 }
 
 /**
@@ -89,10 +94,10 @@ export class PrivateIntentSolver {
       commitment: 'confirmed',
     });
 
-    // Initialize executors
-    this.volswapExecutor = new VolswapExecutor(provider);
-    this.fundingExecutor = new FundingExecutor(provider);
-    this.exoticExecutor = new ExoticExecutor(provider);
+    // Initialize executors with IDLs
+    this.volswapExecutor = new VolswapExecutor(provider, config.idls?.volswap);
+    this.fundingExecutor = new FundingExecutor(provider, config.idls?.fundingSwap);
+    this.exoticExecutor = new ExoticExecutor(provider, config.idls?.exoticVault);
   }
 
   /**
