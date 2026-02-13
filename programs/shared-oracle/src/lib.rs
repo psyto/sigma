@@ -609,7 +609,7 @@ pub struct RecordPriceFromPyth<'info> {
 
     /// CHECK: Pyth price account, validated in handler
     #[account(
-        constraint = pyth_price_account.key() == price_feed.pyth_feed.unwrap() @ OracleError::InvalidPythFeed
+        constraint = pyth_price_account.key() == price_feed.pyth_feed.unwrap_or_default() @ OracleError::InvalidPythFeed
     )]
     pub pyth_price_account: AccountInfo<'info>,
 }

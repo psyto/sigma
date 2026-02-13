@@ -144,15 +144,21 @@ pub fn record_price_from_pyth(ctx: Context<RecordPriceFromPyth>) -> Result<()> {
     require!(pyth_data.len() >= 224, OracleError::InvalidPythFeed);
 
     // Read expo (i32 at offset 20)
-    let expo_bytes: [u8; 4] = pyth_data[20..24].try_into().unwrap();
+    let expo_bytes: [u8; 4] = pyth_data[20..24]
+        .try_into()
+        .map_err(|_| error!(OracleError::InvalidPythFeed))?;
     let expo = i32::from_le_bytes(expo_bytes);
 
     // Read price (i64 at offset 208)
-    let price_bytes: [u8; 8] = pyth_data[208..216].try_into().unwrap();
+    let price_bytes: [u8; 8] = pyth_data[208..216]
+        .try_into()
+        .map_err(|_| error!(OracleError::InvalidPythFeed))?;
     let price = i64::from_le_bytes(price_bytes);
 
     // Read confidence (u64 at offset 216)
-    let conf_bytes: [u8; 8] = pyth_data[216..224].try_into().unwrap();
+    let conf_bytes: [u8; 8] = pyth_data[216..224]
+        .try_into()
+        .map_err(|_| error!(OracleError::InvalidPythFeed))?;
     let conf = u64::from_le_bytes(conf_bytes);
 
     // Validate price

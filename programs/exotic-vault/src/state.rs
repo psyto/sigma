@@ -331,7 +331,7 @@ impl PriceSampleBuffer {
         }
 
         if total_time == 0 {
-            return self.samples.last().unwrap().price;
+            return self.samples.last().map_or(0, |s| s.price);
         }
 
         (weighted_sum / total_time) as u64
