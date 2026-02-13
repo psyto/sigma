@@ -24,7 +24,7 @@
  * ```
  */
 
-import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
+import { AnchorProvider, Wallet, Idl } from "@coral-xyz/anchor";
 import { Connection, Commitment, PublicKey } from "@solana/web3.js";
 
 // Re-export clients
@@ -78,10 +78,10 @@ export class SigmaClient {
     provider: AnchorProvider,
     config: Partial<SigmaConfig> = {},
     idls?: {
-      oracle?: any;
-      volswap?: any;
-      fundingSwap?: any;
-      exoticVault?: any;
+      oracle?: Idl;
+      volswap?: Idl;
+      fundingSwap?: Idl;
+      exoticVault?: Idl;
     }
   ) {
     this.provider = provider;
@@ -132,10 +132,10 @@ export class SigmaClient {
     commitment: Commitment = "confirmed",
     config: Partial<SigmaConfig> = {},
     idls?: {
-      oracle?: any;
-      volswap?: any;
-      fundingSwap?: any;
-      exoticVault?: any;
+      oracle?: Idl;
+      volswap?: Idl;
+      fundingSwap?: Idl;
+      exoticVault?: Idl;
     }
   ): SigmaClient {
     const provider = new AnchorProvider(
@@ -153,10 +153,10 @@ export class SigmaClient {
     wallet: any,
     commitment: Commitment = "confirmed",
     idls?: {
-      oracle?: any;
-      volswap?: any;
-      fundingSwap?: any;
-      exoticVault?: any;
+      oracle?: Idl;
+      volswap?: Idl;
+      fundingSwap?: Idl;
+      exoticVault?: Idl;
     }
   ): SigmaClient {
     const connection = new Connection(
@@ -180,10 +180,10 @@ export class SigmaClient {
     rpcUrl: string = "https://api.mainnet-beta.solana.com",
     commitment: Commitment = "confirmed",
     idls?: {
-      oracle?: any;
-      volswap?: any;
-      fundingSwap?: any;
-      exoticVault?: any;
+      oracle?: Idl;
+      volswap?: Idl;
+      fundingSwap?: Idl;
+      exoticVault?: Idl;
     }
   ): SigmaClient {
     const connection = new Connection(rpcUrl, commitment);
@@ -204,10 +204,10 @@ export class SigmaClient {
     rpcUrl: string = "http://127.0.0.1:8899",
     commitment: Commitment = "confirmed",
     idls?: {
-      oracle?: any;
-      volswap?: any;
-      fundingSwap?: any;
-      exoticVault?: any;
+      oracle?: Idl;
+      volswap?: Idl;
+      fundingSwap?: Idl;
+      exoticVault?: Idl;
     }
   ): SigmaClient {
     const connection = new Connection(rpcUrl, commitment);
