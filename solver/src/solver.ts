@@ -351,7 +351,7 @@ export function createSolverConfig(): SolverConfig {
   const encryptionKeypair = generateEncryptionKeypair();
 
   return {
-    rpcUrl: process.env.RPC_URL || 'https://api.mainnet-beta.solana.com',
+    rpcUrl: process.env.RPC_URL || 'https://api.devnet.solana.com',
     keypair,
     encryptionKeypair,
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '5000'),
