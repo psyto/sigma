@@ -1,5 +1,5 @@
 import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { AnchorProvider, Wallet, BN, Program } from '@coral-xyz/anchor';
+import { AnchorProvider, Wallet, BN, Program, Idl } from '@coral-xyz/anchor';
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { VarianceSwapIntent } from '@sigma-protocol/private-intents';
 import {
@@ -27,7 +27,7 @@ export class VolswapExecutor {
   private provider: AnchorProvider;
   private program: Program;
 
-  constructor(provider: AnchorProvider, idl?: any) {
+  constructor(provider: AnchorProvider, idl?: Idl) {
     this.provider = provider;
     this.program = new Program(idl, provider);
   }

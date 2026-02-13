@@ -1,4 +1,4 @@
-import { Program, AnchorProvider } from "@coral-xyz/anchor";
+import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor";
 import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
@@ -31,7 +31,7 @@ export class FundingSwapClient {
   private program: Program;
   private provider: AnchorProvider;
 
-  constructor(provider: AnchorProvider, idl?: any) {
+  constructor(provider: AnchorProvider, idl?: Idl) {
     this.provider = provider;
     this.program = new Program(idl, provider);
   }

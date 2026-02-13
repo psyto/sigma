@@ -1,4 +1,4 @@
-import { Program, AnchorProvider } from "@coral-xyz/anchor";
+import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor";
 import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import {
@@ -28,7 +28,7 @@ export class OracleClient {
   private program: Program;
   private provider: AnchorProvider;
 
-  constructor(provider: AnchorProvider, idl?: any) {
+  constructor(provider: AnchorProvider, idl?: Idl) {
     this.provider = provider;
     // In production, load IDL from file or anchor workspace
     this.program = new Program(idl, provider);
