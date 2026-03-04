@@ -276,37 +276,169 @@ export class PrivateIntentClient {
   }
 
   /**
-   * Cancel a pending intent
+   * Cancel a pending intent and reclaim collateral
+   *
+   * Builds and sends the cancel_intent instruction which transfers collateral
+   * back from the intent vault to the user's token account and closes the vault.
    */
   async cancelIntent(intentId: BN): Promise<string> {
     const [intentPda] = this.findIntentPda(intentId);
+    const [intentVaultPda] = this.findIntentVaultPda(intentPda);
 
-    // TODO: Build and send cancel_intent instruction
-    console.log(`Cancelling intent ${intentId.toString()}`);
+    // Fetch the intent account to get the collateral mint
+    const intentAccountInfo = await this.connection.getAccountInfo(intentPda);
+    if (!intentAccountInfo) {
+      throw new Error(`Intent account not found: ${intentPda.toBase58()}`);
+    }
 
-    return 'cancel_signature_placeholder';
+    // Deserialize to get the collateral mint
+    // Account layout: 8 (discriminator) + 32 (owner) + 8 (intent_id) + 1 (intent_type)
+    // + 32 (target_pool) + 32 (collateral_mint) ...
+    const data = intentAccountInfo.data;
+    const collateralMint = new PublicKey(data.subarray(81, 113));
+
+    const userCollateral = await getAssociatedTokenAddress(
+      collateralMint,
+      this.wallet.publicKey
+    );
+
+    // Build cancel_intent instruction
+    // Instruction discriminator for cancel_intent (Anchor auto-generated)
+    const discriminator = Buffer.from([
+      // sha256("global:cancel_intent")[:8]
+      0x23, 0xc3, 0xb4, 0x16, 0x8c, 0xd0, 0x47, 0x22,
+    ]);
+
+    const cancelIx = new TransactionInstruction({
+      programId: PrivateIntentClient.PROGRAM_ID,
+      keys: [
+        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
+        { pubkey: intentPda, isSigner: false, isWritable: true },
+        { pubkey: collateralMint, isSigner: false, isWritable: false },
+        { pubkey: intentVaultPda, isSigner: false, isWritable: true },
+        { pubkey: userCollateral, isSigner: false, isWritable: true },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: discriminator,
+    });
+
+    const transaction = new Transaction().add(cancelIx);
+    const signature = await sendAndConfirmTransaction(
+      this.connection,
+      transaction,
+      [this.wallet.payer],
+      { commitment: 'confirmed' }
+    );
+
+    console.log(`Intent ${intentId.toString()} cancelled. Signature: ${signature}`);
+    return signature;
   }
 
   /**
    * Get intent status
+   *
+   * Fetches the on-chain intent account and deserializes the status field.
    */
   async getIntentStatus(intentId: BN): Promise<IntentStatus | null> {
     const [intentPda] = this.findIntentPda(intentId);
 
-    // TODO: Fetch and deserialize intent account
-    return null;
+    const accountInfo = await this.connection.getAccountInfo(intentPda);
+    if (!accountInfo) {
+      return null;
+    }
+
+    // Deserialize the status field from the intent account
+    // Account layout (after 8-byte discriminator):
+    //   owner: 32 bytes (offset 8)
+    //   intent_id: 8 bytes (offset 40)
+    //   intent_type: 1 byte (offset 48)
+    //   target_pool: 32 bytes (offset 49)
+    //   collateral_mint: 32 bytes (offset 81)
+    //   collateral_amount: 8 bytes (offset 113)
+    //   collateral_source: 1 byte (offset 121)
+    //   vaa_hash: 4 (len) + up to 32 bytes (offset 122)
+    //   After vaa_hash comes encrypted_payload (variable), user_encryption_pubkey (variable),
+    //   then status (1 byte)
+    //
+    // We use a simplified approach: read the vaa_hash length to compute offset
+    const data = accountInfo.data;
+    const vaaHashLen = data.readUInt32LE(122);
+    const encryptedPayloadOffset = 126 + vaaHashLen;
+    const encryptedPayloadLen = data.readUInt32LE(encryptedPayloadOffset);
+    const userPubkeyOffset = encryptedPayloadOffset + 4 + encryptedPayloadLen;
+    const userPubkeyLen = data.readUInt32LE(userPubkeyOffset);
+    const statusOffset = userPubkeyOffset + 4 + userPubkeyLen;
+
+    const statusByte = data[statusOffset];
+    return statusByte as IntentStatus;
   }
 
   /**
    * Get all intents for current wallet
+   *
+   * Uses getProgramAccounts with a memcmp filter on the owner field to find
+   * all intent accounts belonging to the current wallet.
    */
   async getMyIntents(): Promise<any[]> {
-    // TODO: Use getProgramAccounts with owner filter
-    return [];
+    const accounts = await this.connection.getProgramAccounts(
+      PrivateIntentClient.PROGRAM_ID,
+      {
+        commitment: 'confirmed',
+        filters: [
+          // Filter by account size (discriminator check - ensure it's an EncryptedIntent)
+          // Use memcmp on the owner field (bytes 8..40 after the 8-byte Anchor discriminator)
+          {
+            memcmp: {
+              offset: 8, // owner field starts after the 8-byte discriminator
+              bytes: this.wallet.publicKey.toBase58(),
+            },
+          },
+        ],
+      }
+    );
+
+    return accounts.map((account) => {
+      const data = account.account.data;
+      // Parse the key fields from the account data
+      const owner = new PublicKey(data.subarray(8, 40));
+      const intentId = new BN(data.subarray(40, 48), 'le');
+      const intentType = data[48] as IntentType;
+      const targetPool = new PublicKey(data.subarray(49, 81));
+      const collateralMint = new PublicKey(data.subarray(81, 113));
+      const collateralAmount = new BN(data.subarray(113, 121), 'le');
+      const collateralSource = data[121];
+
+      // Parse variable-length fields to get to status
+      const vaaHashLen = data.readUInt32LE(122);
+      const vaaHash = data.subarray(126, 126 + vaaHashLen);
+      const epOffset = 126 + vaaHashLen;
+      const epLen = data.readUInt32LE(epOffset);
+      const upkOffset = epOffset + 4 + epLen;
+      const upkLen = data.readUInt32LE(upkOffset);
+      const statusOffset = upkOffset + 4 + upkLen;
+      const status = data[statusOffset] as IntentStatus;
+
+      return {
+        pubkey: account.pubkey,
+        owner,
+        intentId,
+        intentType,
+        targetPool,
+        collateralMint,
+        collateralAmount,
+        collateralSource,
+        status,
+      };
+    });
   }
 
   /**
    * Internal method to submit an intent
+   *
+   * Builds and sends the submit_intent instruction to the private-intents
+   * program. This transfers collateral to the intent vault and stores the
+   * encrypted payload on-chain for the solver to process.
    */
   private async submitIntent(
     intentType: IntentType,
@@ -321,23 +453,108 @@ export class PrivateIntentClient {
     const [intentPda, intentBump] = this.findIntentPda(intentId);
     const [intentVaultPda] = this.findIntentVaultPda(intentPda);
 
+    // Derive solver config PDA
+    const [solverConfigPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('solver_config')],
+      PrivateIntentClient.PROGRAM_ID
+    );
+
     // Get user's token account
     const userCollateral = await getAssociatedTokenAddress(
       collateralMint,
       this.wallet.publicKey
     );
 
-    // TODO: Build and send submit_intent instruction
-    console.log(`Submitting intent ${intentId.toString()}`);
+    // Ensure the user's ATA exists; create it if not
+    const ataInfo = await this.connection.getAccountInfo(userCollateral);
+    const preInstructions: TransactionInstruction[] = [];
+    if (!ataInfo) {
+      preInstructions.push(
+        createAssociatedTokenAccountInstruction(
+          this.wallet.publicKey,
+          userCollateral,
+          this.wallet.publicKey,
+          collateralMint
+        )
+      );
+    }
+
+    // Build the submit_intent instruction data
+    // Anchor instruction format: 8-byte discriminator + serialized args
+    // discriminator = sha256("global:submit_intent")[:8]
+    const discriminator = Buffer.from([
+      0xf7, 0x35, 0x5f, 0x41, 0x06, 0x53, 0x9e, 0x2c,
+    ]);
+
+    // Serialize arguments:
+    // intent_id: u64 (8 bytes LE)
+    // intent_type: u8 (1 byte - enum variant index)
+    // collateral_amount: u64 (8 bytes LE)
+    // encrypted_payload: Vec<u8> (4-byte length prefix + data)
+    // user_encryption_pubkey: Vec<u8> (4-byte length prefix + data)
+    const intentIdBuf = Buffer.alloc(8);
+    intentId.toArrayLike(Buffer, 'le', 8).copy(intentIdBuf);
+
+    const intentTypeBuf = Buffer.from([intentType]);
+
+    const collateralAmountBuf = Buffer.alloc(8);
+    collateralAmount.toArrayLike(Buffer, 'le', 8).copy(collateralAmountBuf);
+
+    const payloadLenBuf = Buffer.alloc(4);
+    payloadLenBuf.writeUInt32LE(encryptedPayload.length);
+
+    const encryptionPubkey = this.encryptionKeypair!.publicKey;
+    const pubkeyLenBuf = Buffer.alloc(4);
+    pubkeyLenBuf.writeUInt32LE(encryptionPubkey.length);
+
+    const instructionData = Buffer.concat([
+      discriminator,
+      intentIdBuf,
+      intentTypeBuf,
+      collateralAmountBuf,
+      payloadLenBuf,
+      Buffer.from(encryptedPayload),
+      pubkeyLenBuf,
+      Buffer.from(encryptionPubkey),
+    ]);
+
+    const submitIx = new TransactionInstruction({
+      programId: PrivateIntentClient.PROGRAM_ID,
+      keys: [
+        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
+        { pubkey: solverConfigPda, isSigner: false, isWritable: false },
+        { pubkey: intentPda, isSigner: false, isWritable: true },
+        { pubkey: targetPool, isSigner: false, isWritable: false },
+        { pubkey: collateralMint, isSigner: false, isWritable: false },
+        { pubkey: userCollateral, isSigner: false, isWritable: true },
+        { pubkey: intentVaultPda, isSigner: false, isWritable: true },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: instructionData,
+    });
+
+    const transaction = new Transaction();
+    preInstructions.forEach((ix) => transaction.add(ix));
+    transaction.add(submitIx);
+
+    const signature = await sendAndConfirmTransaction(
+      this.connection,
+      transaction,
+      [this.wallet.payer],
+      { commitment: 'confirmed' }
+    );
+
+    console.log(`Intent ${intentId.toString()} submitted successfully`);
     console.log(`  Type: ${IntentType[intentType]}`);
     console.log(`  Target: ${targetPool.toBase58()}`);
     console.log(`  Collateral: ${collateralAmount.toString()}`);
-    console.log(`  Encrypted payload: ${encryptedPayload.length} bytes`);
+    console.log(`  Signature: ${signature}`);
 
     return {
       intentId,
       intentPubkey: intentPda,
-      signature: 'submit_signature_placeholder',
+      signature,
     };
   }
 

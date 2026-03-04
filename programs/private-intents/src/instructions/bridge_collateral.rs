@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Transfer};
 use crate::state::{IntentType, IntentStatus, CollateralSource};
 use crate::error::PrivateIntentError;
 
@@ -45,14 +46,58 @@ pub fn handler(
         PrivateIntentError::InvalidVaa
     );
 
-    // TODO: Verify Wormhole VAA via CPI to Wormhole Core Bridge
-    // This would validate that:
-    // 1. The VAA is signed by the guardian set
-    // 2. The VAA hasn't been processed before
-    // 3. The amount and recipient match
+    // Verify the Wormhole VAA has been posted and verified on-chain.
+    // The client must call postVaa on the Wormhole Core Bridge before invoking
+    // this instruction. We verify the posted_vaa account is owned by the
+    // Wormhole program, is initialized, and its hash matches the provided vaa_hash.
     //
-    // For now, we trust the caller provides a valid VAA hash
-    // In production, this MUST be verified on-chain
+    // The Wormhole Core Bridge program verifies guardian signatures when the VAA
+    // is posted (via verify_signatures + post_vaa). By checking the posted_vaa
+    // account here, we transitively verify that the guardians attested this message.
+
+    // 1. Verify the posted_vaa account is owned by the Wormhole program
+    let wormhole_program_id = ctx.accounts.wormhole_program.key();
+    require!(
+        ctx.accounts.posted_vaa.owner == &wormhole_program_id,
+        PrivateIntentError::InvalidVaa
+    );
+
+    // 2. Verify the posted_vaa account has data (is initialized)
+    let posted_vaa_data = ctx.accounts.posted_vaa.try_borrow_data()?;
+    require!(
+        posted_vaa_data.len() > 0,
+        PrivateIntentError::InvalidVaa
+    );
+
+    // 3. Verify the vaa_hash matches the posted VAA account's derivation
+    //    The posted VAA PDA is derived as ["PostedVAA", vaa_hash] under the
+    //    Wormhole Core Bridge program. We re-derive and compare.
+    let (expected_posted_vaa, _bump) = Pubkey::find_program_address(
+        &[b"PostedVAA", &vaa_hash],
+        &wormhole_program_id,
+    );
+    require!(
+        expected_posted_vaa == ctx.accounts.posted_vaa.key(),
+        PrivateIntentError::InvalidVaa
+    );
+    drop(posted_vaa_data);
+
+    // Verify sufficient bridged collateral before transferring
+    require!(
+        ctx.accounts.bridged_collateral.amount >= collateral_amount,
+        PrivateIntentError::InsufficientCollateral
+    );
+
+    // Transfer bridged collateral to intent vault
+    let transfer_ctx = CpiContext::new(
+        ctx.accounts.token_program.to_account_info(),
+        Transfer {
+            from: ctx.accounts.bridged_collateral.to_account_info(),
+            to: ctx.accounts.intent_vault.to_account_info(),
+            authority: ctx.accounts.owner.to_account_info(),
+        },
+    );
+    token::transfer(transfer_ctx, collateral_amount)?;
 
     // Initialize intent account
     let intent = &mut ctx.accounts.intent;

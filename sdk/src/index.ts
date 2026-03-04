@@ -26,6 +26,7 @@
 
 import { AnchorProvider, Wallet, Idl } from "@coral-xyz/anchor";
 import { Connection, Commitment, PublicKey } from "@solana/web3.js";
+import { PrivateIntentClient } from "@sigma-protocol/private-intents";
 
 // Re-export clients
 export { OracleClient } from "./oracle";
@@ -65,7 +66,7 @@ export class SigmaClient {
   public readonly provider: AnchorProvider;
   public readonly config: SigmaConfig;
 
-  private _privateIntents: any = null;
+  private _privateIntents: PrivateIntentClient | null = null;
 
   /**
    * Create a new SigmaClient
@@ -117,10 +118,27 @@ export class SigmaClient {
 
   /**
    * Get the private intents client for encrypted order submission
-   * Note: PrivateIntents module is not yet available - this is a placeholder
+   *
+   * Lazily initializes a PrivateIntentClient using the provider's connection
+   * and wallet. The client handles encryption, key registration, and intent
+   * submission to the private-intents on-chain program.
+   *
+   * @example
+   * ```typescript
+   * const client = sigma.privateIntents;
+   * client.initializeEncryption(walletSecret);
+   * await client.registerWithSolver('https://solver.sigma.fi');
+   * await client.submitPrivateVarianceSwap({ ... });
+   * ```
    */
-  get privateIntents(): any {
-    throw new Error("PrivateIntents module not yet implemented");
+  get privateIntents(): PrivateIntentClient {
+    if (!this._privateIntents) {
+      this._privateIntents = new PrivateIntentClient(
+        this.provider.connection,
+        this.provider.wallet as Wallet
+      );
+    }
+    return this._privateIntents;
   }
 
   /**

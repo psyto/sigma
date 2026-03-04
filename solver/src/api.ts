@@ -119,7 +119,8 @@ export function createSolverApiRouter(solver: PrivateIntentSolver): Router {
     res.json({
       success: true,
       registeredUsers: PrivateIntentSolver.getRegisteredUserCount(),
-      // TODO: Add more stats from solver
+      processedIntents: solver.getProcessedIntentCount(),
+      isRunning: solver.getIsRunning(),
     });
   });
 
