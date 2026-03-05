@@ -39,7 +39,7 @@ Based on comprehensive research and analysis of your existing codebases, this do
 | **kalshify** | Binary prediction markets, AI recommendations, signal detection | Kalshi API |
 | **titanus** | RWA tokenization, telematics oracle, auto-settlement, geofencing | Solana |
 | **continuum** | Repo transactions, JPY stablecoin, KYC/Transfer hooks, collateralized lending | Solana |
-| **veil** | Encrypted orders, dark pools, ZK proofs, shielded transfers, Arcium MPC | Solana |
+| **veil-solana** | Encrypted orders, dark pools, ZK proofs, shielded transfers, Arcium MPC | Solana |
 | **lending** | Collateral ratios, liquidation thresholds, share-based accounting | Solana |
 | **indie-star-market** | Binary outcome tokens, AMM pricing, settlement/redemption | Solana |
 | **deltavault** | Covered call vault, Pyth oracle, weekly rebalancing | Solana |
@@ -627,7 +627,7 @@ impl ExoticOption {
 | `solana-arbitrage/src/arbitrage-bot.ts` | VolSwap | Multi-DEX price fetching |
 | `dverse/src/lib/analytics/calculations.ts` | All three | Analytics calculations |
 | `kalshify/src/lib/intel/smart-money-detector.ts` | FundingSwap | Anomaly detection |
-| `veil/packages/crypto/*` | ExoticVault | Privacy layer |
+| `veil-solana/packages/crypto/*` | ExoticVault | Privacy layer |
 | `titanus/programs/titanus/src/lib.rs` | ExoticVault | Geofence → Barrier logic |
 
 ---
