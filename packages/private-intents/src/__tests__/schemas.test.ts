@@ -14,7 +14,7 @@ import {
   FUNDING_SWAP_SCHEMA,
   EXOTIC_OPTION_SCHEMA,
 } from '../schemas';
-import { calculateSchemaSize } from '@privacy-suite/crypto';
+import { calculateSchemaSize } from '@veil/crypto';
 
 describe('Payload Schemas', () => {
   describe('Schema Sizes', () => {

@@ -30,7 +30,7 @@
  * ```
  */
 
-// Encryption primitives (re-exported from @privacy-suite/crypto)
+// Encryption primitives (re-exported from @veil/crypto)
 export * from './encryption';
 
 // Payload schemas

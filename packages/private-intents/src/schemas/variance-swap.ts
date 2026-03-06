@@ -1,4 +1,4 @@
-import { PayloadSchema, serializePayload, deserializePayload } from '@privacy-suite/crypto';
+import { PayloadSchema, serializePayload, deserializePayload } from '@veil/crypto';
 import BN from 'bn.js';
 
 /**

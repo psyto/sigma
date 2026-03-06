@@ -1,5 +1,5 @@
 /**
- * Re-export encryption primitives from @privacy-suite/crypto
+ * Re-export encryption primitives from @veil/crypto
  *
  * This module provides NaCl box encryption (Curve25519-XSalsa20-Poly1305)
  * and threshold secret sharing for the private intent protocol.
@@ -17,7 +17,7 @@ export {
   encryptionKeyToBase58,
   base58ToEncryptionKey,
   validateEncryptedData,
-} from '@privacy-suite/crypto';
+} from '@veil/crypto';
 
 // Threshold secret sharing (for future M-of-N governance)
 export {
@@ -28,7 +28,7 @@ export {
   verifyShares,
   createThresholdEncryption,
   decryptWithThreshold,
-} from '@privacy-suite/crypto';
+} from '@veil/crypto';
 
 // Payload serialization
 export {
@@ -38,4 +38,4 @@ export {
   calculateSchemaSize,
   serializePayload,
   deserializePayload,
-} from '@privacy-suite/crypto';
+} from '@veil/crypto';
