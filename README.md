@@ -120,7 +120,7 @@ Trade positions before expiry through tokenized position market.
 
 Submit encrypted derivative orders with privacy-preserving execution.
 
-- **Encrypted Orders**: NaCl box encryption (X25519-XSalsa20-Poly1305)
+- **Encrypted Orders**: NaCl box encryption (X25519-XSalsa20-Poly1305) via `@veil/crypto`
 - **Solver Execution**: Trusted solver decrypts and executes orders via CPI
 - **Cross-Chain Collateral**: Bridge collateral from Ethereum/Arbitrum via Wormhole
 - **Native USDC**: Circle CCTP support for native USDC bridging
@@ -142,7 +142,7 @@ sigma/
 │   └── private-intents/   # Encrypted order submission
 ├── packages/
 │   └── private-intents/   # Private intents TypeScript library
-│       ├── Encryption utilities (NaCl box)
+│       ├── Encryption utilities (NaCl box via @veil/crypto)
 │       ├── Intent schemas (variance, funding, exotic)
 │       ├── Cross-chain bridge clients
 │       └── PrivateIntentClient
