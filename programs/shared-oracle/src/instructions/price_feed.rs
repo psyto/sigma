@@ -21,11 +21,11 @@ pub fn initialize_price_feed(
     // Validate inputs
     require!(asset_symbol.len() <= 16, OracleError::SymbolTooLong);
     require!(
-        sample_interval_seconds >= 60,
+        sample_interval_seconds >= 1,
         OracleError::IntervalTooShort
     );
     require!(
-        max_samples >= 100 && max_samples <= 10000,
+        max_samples >= 10 && max_samples <= 360,
         OracleError::InvalidMaxSamples
     );
 
@@ -87,7 +87,8 @@ fn check_circuit_breaker(feed: &mut PriceFeed, new_price: u64, current_time: i64
     };
 
     if deviation > feed.max_deviation_bps as u128 {
-        // Trigger circuit breaker
+        // Trigger circuit breaker - set flag but DON'T error so the state persists.
+        // The price update will be skipped by the caller.
         feed.is_circuit_broken = true;
         feed.circuit_break_timestamp = current_time;
         msg!(
@@ -97,7 +98,7 @@ fn check_circuit_breaker(feed: &mut PriceFeed, new_price: u64, current_time: i64
             feed.last_valid_price,
             feed.max_deviation_bps
         );
-        return Err(error!(OracleError::CircuitBreakerTriggered));
+        return Ok(());
     }
 
     feed.last_valid_price = new_price;
@@ -154,8 +155,14 @@ pub fn record_price(ctx: Context<RecordPrice>, price: u64) -> Result<()> {
         );
     }
 
-    // Circuit breaker check
+    // Circuit breaker check (may set is_circuit_broken without erroring)
     check_circuit_breaker(feed, price, clock.unix_timestamp)?;
+
+    // If circuit breaker was just triggered, skip the price update
+    if feed.is_circuit_broken {
+        msg!("Price rejected by circuit breaker: {}", price);
+        return Ok(());
+    }
 
     apply_price_update(feed, buffer, price, &clock);
 

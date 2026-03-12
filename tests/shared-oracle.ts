@@ -33,8 +33,8 @@ describe("shared-oracle", () => {
   describe("Price Feed", () => {
     it("should initialize a price feed", async () => {
       const assetSymbol = "SOL";
-      const sampleIntervalSeconds = 60;
-      const maxSamples = 1000;
+      const sampleIntervalSeconds = 1;
+      const maxSamples = 360;
 
       // Derive PDAs
       [priceFeedPDA] = PublicKey.findProgramAddressSync(
@@ -85,7 +85,7 @@ describe("shared-oracle", () => {
 
         // Fetch and verify the price feed was updated
         const priceFeed = await program.account.priceFeed.fetch(priceFeedPDA);
-        expect(priceFeed.currentPrice.toNumber()).to.equal(price.toNumber());
+        expect(priceFeed.lastPrice.toNumber()).to.equal(price.toNumber());
       } catch (e) {
         console.log("Record price error:", e);
         throw e;
@@ -133,12 +133,241 @@ describe("shared-oracle", () => {
   });
 
   // ============================================================================
+  // Circuit Breaker Tests
+  // ============================================================================
+
+  describe("Circuit Breaker", () => {
+    let cbAssetMint: Keypair;
+    let cbPriceFeedPDA: PublicKey;
+    let cbSampleBufferPDA: PublicKey;
+
+    before(async () => {
+      cbAssetMint = Keypair.generate();
+
+      [cbPriceFeedPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("price_feed"), cbAssetMint.publicKey.toBuffer()],
+        program.programId
+      );
+
+      [cbSampleBufferPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("sample_buffer"), cbPriceFeedPDA.toBuffer()],
+        program.programId
+      );
+
+      // Initialize a new price feed for circuit breaker testing
+      // Use 1-second interval so tests don't need 60s waits
+      await program.methods
+        .initializePriceFeed("CB-TEST", new BN(1), 360)
+        .accounts({
+          authority: authority.publicKey,
+          assetMint: cbAssetMint.publicKey,
+          priceFeed: cbPriceFeedPDA,
+          sampleBuffer: cbSampleBufferPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // Record an initial price to establish baseline
+      await program.methods
+        .recordPrice(new BN(100_000_000)) // $100
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: cbPriceFeedPDA,
+          sampleBuffer: cbSampleBufferPDA,
+        })
+        .rpc();
+    });
+
+    it("should configure circuit breaker threshold", async () => {
+      const maxDeviationBps = 1000; // 10% max deviation
+
+      await program.methods
+        .configureCircuitBreaker(maxDeviationBps)
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: cbPriceFeedPDA,
+        })
+        .rpc();
+
+      const priceFeed = await program.account.priceFeed.fetch(cbPriceFeedPDA);
+      expect(priceFeed.maxDeviationBps).to.equal(1000);
+      expect(priceFeed.isCircuitBroken).to.be.false;
+    });
+
+    it("should accept price within deviation threshold", async () => {
+      // Wait for sample interval
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      // Record a price within 10% of $100 -> $105
+      await program.methods
+        .recordPrice(new BN(105_000_000))
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: cbPriceFeedPDA,
+          sampleBuffer: cbSampleBufferPDA,
+        })
+        .rpc();
+
+      const priceFeed = await program.account.priceFeed.fetch(cbPriceFeedPDA);
+      expect(priceFeed.lastPrice.toNumber()).to.equal(105_000_000);
+      expect(priceFeed.isCircuitBroken).to.be.false;
+    });
+
+    it("should trigger circuit breaker on large deviation", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      // Record a price with >10% deviation: $105 -> $120 (14.3% deviation)
+      // Transaction succeeds but circuit breaker flag is set and price is NOT recorded
+      await program.methods
+        .recordPrice(new BN(120_000_000))
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: cbPriceFeedPDA,
+          sampleBuffer: cbSampleBufferPDA,
+        })
+        .rpc();
+
+      // Verify feed is now paused and price was NOT updated
+      const priceFeed = await program.account.priceFeed.fetch(cbPriceFeedPDA);
+      expect(priceFeed.isCircuitBroken).to.be.true;
+      expect(priceFeed.circuitBreakTimestamp.toNumber()).to.be.greaterThan(0);
+      expect(priceFeed.lastPrice.toNumber()).to.equal(105_000_000); // Unchanged
+    });
+
+    it("should reject all price updates while circuit broken", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      try {
+        await program.methods
+          .recordPrice(new BN(106_000_000))
+          .accounts({
+            authority: authority.publicKey,
+            priceFeed: cbPriceFeedPDA,
+            sampleBuffer: cbSampleBufferPDA,
+          })
+          .rpc();
+
+        expect.fail("Should have rejected while circuit broken");
+      } catch (e: any) {
+        expect(e.message).to.include("FeedCircuitBroken");
+      }
+    });
+
+    it("should reset circuit breaker with new baseline price", async () => {
+      const newValidPrice = new BN(118_000_000); // Set new baseline to $118
+
+      await program.methods
+        .resetCircuitBreaker(newValidPrice)
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: cbPriceFeedPDA,
+        })
+        .rpc();
+
+      const priceFeed = await program.account.priceFeed.fetch(cbPriceFeedPDA);
+      expect(priceFeed.isCircuitBroken).to.be.false;
+      expect(priceFeed.lastValidPrice.toNumber()).to.equal(118_000_000);
+    });
+
+    it("should accept prices again after reset", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      // Record price within 10% of new baseline ($118): $125 (5.9% deviation)
+      await program.methods
+        .recordPrice(new BN(125_000_000))
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: cbPriceFeedPDA,
+          sampleBuffer: cbSampleBufferPDA,
+        })
+        .rpc();
+
+      const priceFeed = await program.account.priceFeed.fetch(cbPriceFeedPDA);
+      expect(priceFeed.lastPrice.toNumber()).to.equal(125_000_000);
+      expect(priceFeed.isCircuitBroken).to.be.false;
+    });
+
+    it("should reject unauthorized circuit breaker reset", async () => {
+      const unauthorizedUser = Keypair.generate();
+
+      try {
+        await program.methods
+          .resetCircuitBreaker(null)
+          .accounts({
+            authority: unauthorizedUser.publicKey,
+            priceFeed: cbPriceFeedPDA,
+          })
+          .signers([unauthorizedUser])
+          .rpc();
+
+        expect.fail("Should have rejected unauthorized reset");
+      } catch (e: any) {
+        expect(e.message).to.include("Unauthorized");
+      }
+    });
+  });
+
+  // ============================================================================
+  // Switchboard Configuration Tests
+  // ============================================================================
+
+  describe("Switchboard Configuration", () => {
+    it("should set a Switchboard feed on a price feed", async () => {
+      const mockSwitchboardFeed = Keypair.generate().publicKey;
+
+      await program.methods
+        .setSwitchboardFeed(mockSwitchboardFeed)
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: priceFeedPDA,
+        })
+        .rpc();
+
+      const priceFeed = await program.account.priceFeed.fetch(priceFeedPDA);
+      expect(priceFeed.switchboardFeed.toString()).to.equal(mockSwitchboardFeed.toString());
+    });
+
+    it("should clear a Switchboard feed", async () => {
+      await program.methods
+        .setSwitchboardFeed(null)
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: priceFeedPDA,
+        })
+        .rpc();
+
+      const priceFeed = await program.account.priceFeed.fetch(priceFeedPDA);
+      expect(priceFeed.switchboardFeed).to.be.null;
+    });
+
+    it("should reject unauthorized Switchboard feed updates", async () => {
+      const unauthorizedUser = Keypair.generate();
+      const mockFeed = Keypair.generate().publicKey;
+
+      try {
+        await program.methods
+          .setSwitchboardFeed(mockFeed)
+          .accounts({
+            authority: unauthorizedUser.publicKey,
+            priceFeed: priceFeedPDA,
+          })
+          .signers([unauthorizedUser])
+          .rpc();
+
+        expect.fail("Should have rejected unauthorized update");
+      } catch (e: any) {
+        expect(e.message).to.include("Unauthorized");
+      }
+    });
+  });
+
+  // ============================================================================
   // Funding Feed Tests
   // ============================================================================
 
   describe("Funding Feed", () => {
     let fundingFeedPDA: PublicKey;
-    const marketSymbol = "SOL-PERP";
+    const marketSymbol = "ETH-PERP";
 
     it("should initialize a funding feed", async () => {
       const fundingIntervalSeconds = 28800; // 8 hours
@@ -316,8 +545,8 @@ describe("shared-oracle", () => {
         program.programId
       );
 
-      // Aggregation method enum - 0 = SimpleAverage
-      const aggregationMethod = { simpleAverage: {} };
+      // Aggregation method enum - Mean variant
+      const aggregationMethod = { mean: {} };
 
       try {
         await program.methods

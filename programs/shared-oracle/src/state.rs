@@ -109,7 +109,7 @@ pub struct SampleBuffer {
     pub price_feed: Pubkey,
 
     /// Price samples (circular buffer)
-    #[max_len(10000)]
+    #[max_len(360)]
     pub samples: Vec<PriceSample>,
 
     /// Index of oldest sample (for circular buffer)
