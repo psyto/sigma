@@ -14,6 +14,7 @@ pub fn initialize_price_feed(
     sample_interval_seconds: u64,
     max_samples: u16,
 ) -> Result<()> {
+    let feed_key = ctx.accounts.price_feed.key();
     let feed = &mut ctx.accounts.price_feed;
     let buffer = &mut ctx.accounts.sample_buffer;
     let clock = Clock::get()?;
@@ -61,6 +62,13 @@ pub fn initialize_price_feed(
     buffer.bump = ctx.bumps.sample_buffer;
 
     msg!("Price feed initialized for {}", asset_symbol);
+
+    emit!(crate::PriceFeedInitialized {
+        price_feed: feed_key,
+        authority: ctx.accounts.authority.key(),
+        asset_symbol,
+    });
+
     Ok(())
 }
 
@@ -139,6 +147,7 @@ fn apply_price_update(feed: &mut PriceFeed, buffer: &mut SampleBuffer, price: u6
 
 /// Record a new price sample from authorized oracle
 pub fn record_price(ctx: Context<RecordPrice>, price: u64) -> Result<()> {
+    let feed_key = ctx.accounts.price_feed.key();
     let feed = &mut ctx.accounts.price_feed;
     let buffer = &mut ctx.accounts.sample_buffer;
     let clock = Clock::get()?;
@@ -172,6 +181,13 @@ pub fn record_price(ctx: Context<RecordPrice>, price: u64) -> Result<()> {
         feed.twap,
         feed.current_variance
     );
+
+    emit!(crate::PriceRecorded {
+        price_feed: feed_key,
+        price,
+        twap: feed.twap,
+        variance_bps: feed.current_variance,
+    });
 
     Ok(())
 }
@@ -382,6 +398,7 @@ pub fn record_price_from_switchboard(ctx: Context<RecordPriceFromSwitchboard>) -
 
 /// Reset the circuit breaker after manual review (authority only)
 pub fn reset_circuit_breaker(ctx: Context<ResetCircuitBreaker>, new_valid_price: Option<u64>) -> Result<()> {
+    let feed_key = ctx.accounts.price_feed.key();
     let feed = &mut ctx.accounts.price_feed;
 
     require!(feed.is_circuit_broken, OracleError::FeedInactive);
@@ -400,6 +417,11 @@ pub fn reset_circuit_breaker(ctx: Context<ResetCircuitBreaker>, new_valid_price:
         feed.asset_symbol,
         feed.last_valid_price
     );
+
+    emit!(crate::CircuitBreakerReset {
+        price_feed: feed_key,
+        new_valid_price: feed.last_valid_price,
+    });
 
     Ok(())
 }

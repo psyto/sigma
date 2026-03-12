@@ -1131,5 +1131,214 @@ describe("private-intents", () => {
         }
       });
     });
+
+    // ========================================================================
+    // Execute Intent (No CPI)
+    // ========================================================================
+
+    describe("execute_intent (no CPI)", () => {
+      const execIntentId = new BN(500);
+      let execIntentPDA: PublicKey;
+      let execIntentVaultPDA: PublicKey;
+      let execTargetPool: PublicKey;
+
+      before(async () => {
+        [execIntentPDA] = deriveIntentPDA(user.publicKey, execIntentId);
+        [execIntentVaultPDA] = deriveIntentVaultPDA(execIntentPDA);
+        execTargetPool = Keypair.generate().publicKey;
+
+        // Submit a fresh intent for execution
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0x55);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        await program.methods
+          .submitIntent(
+            execIntentId,
+            { varianceSwap: {} },
+            new BN(5_000_000), // 5 USDC
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: execIntentPDA,
+            targetPool: execTargetPool,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: execIntentVaultPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+      });
+
+      it("should execute intent and transfer collateral to solver", async () => {
+        const solverTokenAccount = await getOrCreateAssociatedTokenAccount(
+          provider.connection,
+          solver,
+          collateralMint,
+          solver.publicKey
+        );
+
+        // Record solver balance before execution
+        const solverBalanceBefore = await provider.connection.getTokenAccountBalance(
+          solverTokenAccount.address
+        );
+
+        const resultPosition = Keypair.generate().publicKey;
+        const cpiData = Buffer.alloc(8); // Minimum discriminator
+
+        await program.methods
+          .executeIntent(
+            new BN(Math.floor(Date.now() / 1000) + 3600), // deadline 1h from now
+            100, // 1% slippage
+            resultPosition,
+            cpiData
+          )
+          .accounts({
+            solver: solver.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: execIntentPDA,
+            targetPool: execTargetPool,
+            collateralMint: collateralMint,
+            intentVault: execIntentVaultPDA,
+            solverCollateral: solverTokenAccount.address,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([solver])
+          .rpc();
+
+        // Verify intent is now Completed
+        const intent = await program.account.encryptedIntent.fetch(execIntentPDA);
+        expect(JSON.stringify(intent.status)).to.include("completed");
+        expect(intent.executedBy.toString()).to.equal(solver.publicKey.toString());
+        expect(intent.resultPosition.toString()).to.equal(resultPosition.toString());
+
+        // Verify solver received collateral
+        const solverBalanceAfter = await provider.connection.getTokenAccountBalance(
+          solverTokenAccount.address
+        );
+        const collateralReceived =
+          Number(solverBalanceAfter.value.amount) - Number(solverBalanceBefore.value.amount);
+        expect(collateralReceived).to.equal(5_000_000);
+
+        // Verify solver stats updated
+        const config = await program.account.solverConfig.fetch(solverConfigPDA);
+        expect(config.totalIntents.toNumber()).to.be.greaterThan(0);
+      });
+
+      it("should allow owner to claim result after execution", async () => {
+        // The intent is now Completed, owner should be able to claim
+        await program.methods
+          .claimResult()
+          .accounts({
+            owner: user.publicKey,
+            intent: execIntentPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        // Intent account should be closed (rent returned to owner)
+        const intentAccount = await provider.connection.getAccountInfo(execIntentPDA);
+        expect(intentAccount).to.be.null;
+      });
+
+      it("should reject executing an already-completed intent", async () => {
+        // Submit another intent, execute it, then try to execute again
+        const intentId2 = new BN(501);
+        const [intentPDA2] = deriveIntentPDA(user.publicKey, intentId2);
+        const [intentVaultPDA2] = deriveIntentVaultPDA(intentPDA2);
+        const targetPool2 = Keypair.generate().publicKey;
+
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0x66);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        // Submit
+        await program.methods
+          .submitIntent(
+            intentId2,
+            { fundingSwap: {} },
+            new BN(3_000_000),
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA2,
+            targetPool: targetPool2,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: intentVaultPDA2,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        const solverTokenAccount = await getOrCreateAssociatedTokenAccount(
+          provider.connection,
+          solver,
+          collateralMint,
+          solver.publicKey
+        );
+
+        // Execute first time
+        await program.methods
+          .executeIntent(
+            new BN(Math.floor(Date.now() / 1000) + 3600),
+            100,
+            Keypair.generate().publicKey,
+            Buffer.alloc(8)
+          )
+          .accounts({
+            solver: solver.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA2,
+            targetPool: targetPool2,
+            collateralMint: collateralMint,
+            intentVault: intentVaultPDA2,
+            solverCollateral: solverTokenAccount.address,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([solver])
+          .rpc();
+
+        // Try to execute again - should fail
+        try {
+          await program.methods
+            .executeIntent(
+              new BN(Math.floor(Date.now() / 1000) + 3600),
+              100,
+              Keypair.generate().publicKey,
+              Buffer.alloc(8)
+            )
+            .accounts({
+              solver: solver.publicKey,
+              solverConfig: solverConfigPDA,
+              intent: intentPDA2,
+              targetPool: targetPool2,
+              collateralMint: collateralMint,
+              intentVault: intentVaultPDA2,
+              solverCollateral: solverTokenAccount.address,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([solver])
+            .rpc();
+
+          expect.fail("Should have thrown - intent already executed");
+        } catch (e: any) {
+          expect(e.message).to.include("IntentNotExecutable");
+        }
+      });
+    });
   });
 });

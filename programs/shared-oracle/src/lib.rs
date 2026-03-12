@@ -509,6 +509,12 @@ pub mod shared_oracle {
             is_active: true,
         });
 
+        emit!(PositionListed {
+            position_token: ctx.accounts.position_token.key(),
+            seller: ctx.accounts.owner.key(),
+            price,
+        });
+
         Ok(())
     }
 
@@ -556,6 +562,12 @@ pub mod shared_oracle {
 
         // Note: Actual USDC transfer would be handled in a separate instruction
         // or through CPI to token program
+
+        emit!(PositionSold {
+            position_token: ctx.accounts.position_token.key(),
+            buyer: ctx.accounts.buyer.key(),
+            price,
+        });
 
         Ok(())
     }
@@ -1085,4 +1097,64 @@ pub struct UpdatePositionMtm<'info> {
 
     #[account(mut)]
     pub position_token: Account<'info, PositionToken>,
+}
+
+// ============================================================================
+// Events
+// ============================================================================
+
+#[event]
+pub struct PriceFeedInitialized {
+    pub price_feed: Pubkey,
+    pub authority: Pubkey,
+    pub asset_symbol: String,
+}
+
+#[event]
+pub struct PriceRecorded {
+    pub price_feed: Pubkey,
+    pub price: u64,
+    pub twap: u64,
+    pub variance_bps: u64,
+}
+
+#[event]
+pub struct CircuitBreakerTriggered {
+    pub price_feed: Pubkey,
+    pub rejected_price: u64,
+    pub last_valid_price: u64,
+    pub deviation_bps: u64,
+}
+
+#[event]
+pub struct CircuitBreakerReset {
+    pub price_feed: Pubkey,
+    pub new_valid_price: u64,
+}
+
+#[event]
+pub struct FundingRateRecorded {
+    pub funding_feed: Pubkey,
+    pub rate_bps: i64,
+}
+
+#[event]
+pub struct VarianceFinalized {
+    pub variance_tracker: Pubkey,
+    pub epoch: u64,
+    pub variance_bps: u64,
+}
+
+#[event]
+pub struct PositionListed {
+    pub position_token: Pubkey,
+    pub seller: Pubkey,
+    pub price: u64,
+}
+
+#[event]
+pub struct PositionSold {
+    pub position_token: Pubkey,
+    pub buyer: Pubkey,
+    pub price: u64,
 }

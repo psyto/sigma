@@ -45,6 +45,7 @@ pub fn initialize_variance_tracker(
 
 /// Finalize variance for completed epoch
 pub fn finalize_epoch_variance(ctx: Context<FinalizeEpochVariance>) -> Result<()> {
+    let tracker_key = ctx.accounts.variance_tracker.key();
     let tracker = &mut ctx.accounts.variance_tracker;
     let price_feed = &ctx.accounts.price_feed;
     let sample_buffer = &ctx.accounts.sample_buffer;
@@ -101,6 +102,12 @@ pub fn finalize_epoch_variance(ctx: Context<FinalizeEpochVariance>) -> Result<()
         realized_variance,
         epoch_samples.len()
     );
+
+    emit!(crate::VarianceFinalized {
+        variance_tracker: tracker_key,
+        epoch: tracker.current_epoch,
+        variance_bps: tracker.current_epoch_variance,
+    });
 
     Ok(())
 }

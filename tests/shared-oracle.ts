@@ -196,7 +196,7 @@ describe("shared-oracle", () => {
 
     it("should accept price within deviation threshold", async () => {
       // Wait for sample interval
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Record a price within 10% of $100 -> $105
       await program.methods
@@ -214,7 +214,7 @@ describe("shared-oracle", () => {
     });
 
     it("should trigger circuit breaker on large deviation", async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Record a price with >10% deviation: $105 -> $120 (14.3% deviation)
       // Transaction succeeds but circuit breaker flag is set and price is NOT recorded
@@ -235,7 +235,7 @@ describe("shared-oracle", () => {
     });
 
     it("should reject all price updates while circuit broken", async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       try {
         await program.methods
@@ -270,7 +270,7 @@ describe("shared-oracle", () => {
     });
 
     it("should accept prices again after reset", async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Record price within 10% of new baseline ($118): $125 (5.9% deviation)
       await program.methods

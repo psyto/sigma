@@ -40,6 +40,7 @@ pub fn initialize_funding_feed(
 
 /// Record funding rate from authorized oracle
 pub fn record_funding_rate(ctx: Context<RecordFundingRate>, rate_bps: i64) -> Result<()> {
+    let feed_key = ctx.accounts.funding_feed.key();
     let feed = &mut ctx.accounts.funding_feed;
     let clock = Clock::get()?;
 
@@ -81,6 +82,11 @@ pub fn record_funding_rate(ctx: Context<RecordFundingRate>, rate_bps: i64) -> Re
         volatility,
         annualized
     );
+
+    emit!(crate::FundingRateRecorded {
+        funding_feed: feed_key,
+        rate_bps,
+    });
 
     Ok(())
 }
