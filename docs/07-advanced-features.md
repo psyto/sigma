@@ -210,9 +210,68 @@ Solution:
 
 ---
 
+## Switchboard Oracle Integration
+
+Sigma supports Switchboard as an additional oracle source alongside Pyth, providing oracle redundancy and data resilience.
+
+### Why Switchboard?
+
+- **Redundancy**: If Pyth feeds are unavailable, Switchboard provides fallback price data
+- **Broader Coverage**: Access to assets not covered by Pyth
+- **Decentralized**: Switchboard's oracle network provides independent price validation
+
+### Integration Points
+
+| Protocol | Oracle Usage |
+|----------|-------------|
+| **VolSwap** | Price feeds for variance calculation and epoch settlement |
+| **FundingSwap** | Price feeds for funding rate computation |
+| **ExoticVault** | Price feeds for barrier checking, price sampling, and settlement |
+| **Shared Oracle** | Aggregates data from both Pyth and Switchboard |
+
+### Price Staleness
+
+All oracle reads include staleness checks to prevent using outdated data:
+
+```rust
+require!(
+    !price_feed.is_stale(clock.unix_timestamp),
+    Error::StalePriceData
+);
+```
+
+---
+
+## Circuit Breaker
+
+Sigma implements circuit breaker mechanisms to protect against extreme market conditions and oracle failures.
+
+### Automatic Trading Halts
+
+The protocol can automatically halt trading when:
+
+- **Price deviation** exceeds configured thresholds
+- **Oracle staleness** indicates feeds are not updating
+- **Extreme volatility** triggers regime detection (via SVI)
+
+### Protocol-Level Controls
+
+| Control | Description |
+|---------|-------------|
+| **Emergency pause** | Admin can pause all protocol operations |
+| **Position limits** | Maximum notional per position and per pool |
+| **Collateral caps** | Maximum total exposure per vault |
+| **Epoch safeguards** | Epoch transitions require valid oracle data |
+
+### Vault Self-Authority Pattern
+
+Token vaults use a self-authority pattern where the vault PDA is its own token authority. This ensures that only the program can authorize token transfers from the vault, preventing unauthorized withdrawals even if other account authorities are compromised.
+
+---
+
 ## Integration
 
-All three features integrate with Sigma's existing infrastructure:
+All features integrate with Sigma's existing infrastructure:
 
 ```
                     ┌─────────────────────┐
@@ -328,7 +387,7 @@ cancel_listing()
 
 ---
 
-## Next Steps
+## Competitive Positioning
 
 These features address the highest-priority competitive gaps identified in our analysis:
 
@@ -337,5 +396,8 @@ These features address the highest-priority competitive gaps identified in our a
 | Volatility Index | SVI | Comparable to Volmex SVIV |
 | CEX Funding Rates | CEX Funding Feed | Comparable to Pendle Boros |
 | Position Liquidity | Secondary Market | Comparable to Cega VTM |
+| Oracle Redundancy | Pyth + Switchboard | Multi-source resilience |
+| Privacy | Private Intents | Encrypted order submission |
+| Cross-Chain | Wormhole + CCTP | Ethereum/Arbitrum collateral |
 
-With these features, Sigma now offers a complete suite of derivatives infrastructure on Solana.
+With these features, Sigma offers a complete suite of derivatives infrastructure on Solana.

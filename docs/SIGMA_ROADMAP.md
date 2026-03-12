@@ -8,10 +8,11 @@ Sigma (σ) is a unified DeFi derivatives suite bringing sophisticated volatility
 
 | Protocol | Description | Status |
 |----------|-------------|--------|
-| **VolSwap** | Variance swaps for volatility trading | Scaffolded |
-| **FundingSwap** | Funding rate derivatives | Scaffolded |
-| **ExoticVault** | Asian & barrier options | Scaffolded |
-| **Shared Oracle** | Unified price/rate feeds | Scaffolded |
+| **VolSwap** | Variance swaps for volatility trading | ✅ Implemented |
+| **FundingSwap** | Funding rate derivatives | ✅ Implemented |
+| **ExoticVault** | Asian & barrier options | ✅ Implemented |
+| **Shared Oracle** | Unified price/rate feeds (Pyth + Switchboard) | ✅ Implemented |
+| **Private Intents** | Encrypted order submission with solver execution | ✅ Implemented |
 
 ## Architecture Overview
 
@@ -20,7 +21,12 @@ Sigma (σ) is a unified DeFi derivatives suite bringing sophisticated volatility
 │                         Sigma Protocol Suite                         │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐               │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │                     Private Intents Layer                       │ │
+│  │  Encrypted Orders ──▶ Solver ──▶ Cross-Chain (Wormhole+CCTP)  │ │
+│  └───────────────────────────┬────────────────────────────────────┘ │
+│                               │                                     │
+│  ┌─────────────┐   ┌─────────┴───┐   ┌─────────────┐               │
 │  │   VolSwap   │   │ FundingSwap │   │ ExoticVault │               │
 │  │             │   │             │   │             │               │
 │  │ • Variance  │   │ • Receiver  │   │ • Asian     │               │
@@ -38,6 +44,8 @@ Sigma (σ) is a unified DeFi derivatives suite bringing sophisticated volatility
 │                  │ • TWAP Calc     │                                │
 │                  │ • Variance Calc │                                │
 │                  │ • Funding Rates │                                │
+│                  │ • SVI Index     │                                │
+│                  │ • CEX Funding   │                                │
 │                  └─────────────────┘                                │
 │                                                                      │
 ├─────────────────────────────────────────────────────────────────────┤
@@ -46,11 +54,11 @@ Sigma (σ) is a unified DeFi derivatives suite bringing sophisticated volatility
 │                                                                      │
 │  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐               │
 │  │   Oracle    │   │     SDK     │   │  Dashboard  │               │
-│  │   Service   │   │             │   │     App     │               │
+│  │   Sources   │   │             │   │     App     │               │
 │  │             │   │ • VolSwap   │   │             │               │
 │  │ • Pyth      │   │ • Funding   │   │ • Portfolio │               │
-│  │ • Drift     │   │ • Exotic    │   │ • Analytics │               │
-│  │ • Jupiter   │   │ • Utils     │   │ • Trading   │               │
+│  │ • Switchboard│  │ • Exotic    │   │ • Analytics │               │
+│  │ • Drift     │   │ • Intents   │   │ • Trading   │               │
 │  └─────────────┘   └─────────────┘   └─────────────┘               │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
@@ -58,67 +66,85 @@ Sigma (σ) is a unified DeFi derivatives suite bringing sophisticated volatility
 
 ## Development Phases
 
-### Phase 1: Foundation (Weeks 1-2)
+### Phase 1: Foundation ✅
 **Focus: Shared infrastructure and basic functionality**
 
 - [x] Create monorepo structure
 - [x] Set up Anchor configuration
 - [x] Scaffold all programs
-- [ ] Complete shared-oracle implementation
-  - [ ] Price feed management
-  - [ ] TWAP calculation
-  - [ ] Variance calculation
-  - [ ] Funding rate aggregation
-- [ ] Create oracle service (TypeScript)
-- [ ] Set up basic SDK structure
+- [x] Complete shared-oracle implementation
+  - [x] Price feed management
+  - [x] TWAP calculation
+  - [x] Variance calculation
+  - [x] Funding rate aggregation
+  - [x] Volatility Index (SVI)
+  - [x] CEX Funding Rate aggregation (Binance, Bybit, OKX, Deribit, Bitget, Kraken)
+  - [x] Secondary Market infrastructure
+- [x] Create oracle service (TypeScript)
+- [x] Set up basic SDK structure
 
-### Phase 2: VolSwap Core (Weeks 2-4)
+### Phase 2: VolSwap Core ✅
 **Focus: Variance swap functionality**
 
-- [ ] Complete pool management
-- [ ] Implement position opening (long/short)
-- [ ] Build epoch settlement logic
-- [ ] Add payout distribution
-- [ ] Create basic risk controls
-- [ ] Write comprehensive tests
+- [x] Complete pool management (initialize, LP deposit/withdraw)
+- [x] Implement position opening (long/short variance)
+- [x] Build epoch settlement logic
+- [x] Add payout distribution
+- [x] Create basic risk controls
+- [x] Write comprehensive tests (20+ tests passing)
 
-### Phase 3: FundingSwap Core (Weeks 4-6)
+### Phase 3: FundingSwap Core ✅
 **Focus: Funding rate derivatives**
 
-- [ ] Integrate external funding rate sources
-- [ ] Complete pool infrastructure
-- [ ] Implement receiver/payer positions
-- [ ] Build funding period processing
-- [ ] Add margin and liquidation
-- [ ] Write comprehensive tests
+- [x] Integrate external funding rate sources
+- [x] Complete pool infrastructure
+- [x] Implement receiver/payer positions
+- [x] Build funding period processing
+- [x] Add margin and liquidation
+- [x] Write comprehensive tests (15+ tests passing)
 
-### Phase 4: ExoticVault Core (Weeks 6-8)
+### Phase 4: ExoticVault Core ✅
 **Focus: Asian and barrier options**
 
-- [ ] Complete vault management
-- [ ] Implement Asian options (call/put)
-- [ ] Implement barrier options (knock-in/out)
-- [ ] Build TWAP sampling system
-- [ ] Add settlement and payout logic
-- [ ] Write comprehensive tests
+- [x] Complete vault management
+- [x] Implement Asian options (call/put)
+- [x] Implement barrier options (knock-in/knock-out)
+- [x] Build TWAP sampling system (360-sample buffer)
+- [x] Add settlement and payout logic
+- [x] Barrier checking (knock-in/knock-out triggers)
+- [x] Price sample recording for Asian options
+- [x] Write comprehensive tests (20+ tests passing)
 
-### Phase 5: Integration & SDK (Weeks 8-10)
+### Phase 5: Private Intents ✅
+**Focus: Privacy-preserving order execution**
+
+- [x] Encrypted intent submission (NaCl box: X25519-XSalsa20-Poly1305)
+- [x] Solver infrastructure (initialize, execute, claim)
+- [x] Cross-chain collateral support (Wormhole + Circle CCTP)
+- [x] CPI dispatch to VolSwap, FundingSwap, ExoticVault
+- [x] Slippage enforcement (balance-based verification, 5000 bps cap)
+- [x] CPI data validation (discriminator + length checks)
+- [x] Write comprehensive tests (10+ tests passing)
+
+### Phase 6: Integration & SDK ✅
 **Focus: Cross-protocol and developer tools**
 
-- [ ] Complete SDK for all protocols
-- [ ] Build cross-protocol strategies
-- [ ] Create example integrations
-- [ ] Add structured product templates
-- [ ] Comprehensive documentation
+- [x] Complete SDK for all protocols
+- [x] Private intents TypeScript library
+- [x] Cross-chain bridge clients (Wormhole, CCTP)
+- [x] Comprehensive documentation
+- [x] 88 integration tests passing, zero warnings
 
-### Phase 6: Dashboard & Launch (Weeks 10-12)
+### Phase 7: Dashboard & Launch
 **Focus: User interface and deployment**
 
-- [ ] Build trading dashboard
-- [ ] Create portfolio management UI
-- [ ] Add analytics and charts
-- [ ] Devnet deployment and testing
+- [x] Build trading dashboard (Next.js)
+- [x] Create portfolio management UI
+- [x] Add analytics and charts
+- [x] Landing page
+- [x] Localnet deployment
 - [ ] Security audit
+- [ ] Devnet deployment
 - [ ] Mainnet beta launch
 
 ## Cross-Protocol Synergies
@@ -217,71 +243,74 @@ sigma/
 ├── tsconfig.json
 │
 ├── programs/
-│   ├── shared-oracle/
+│   ├── shared-oracle/          # Unified oracle infrastructure
 │   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── state.rs
+│   │       ├── lib.rs          # Price feeds, TWAP, variance, SVI, CEX funding
+│   │       ├── state.rs        # PriceFeed, VarianceTracker, VolatilityIndex, etc.
 │   │       └── errors.rs
 │   │
-│   ├── volswap/
+│   ├── volswap/                # Variance swap protocol
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── state.rs
 │   │       ├── errors.rs
-│   │       └── instructions/
-│   │           ├── mod.rs
-│   │           ├── initialize_pool.rs
-│   │           ├── open_long.rs
-│   │           ├── open_short.rs
-│   │           ├── settle_epoch.rs
-│   │           ├── claim_payout.rs
-│   │           └── ...
+│   │       └── instructions/   # initialize_pool, open_long/short, settle_epoch, etc.
 │   │
-│   ├── funding-swap/
+│   ├── funding-swap/           # Funding rate derivatives
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── state.rs
 │   │       ├── errors.rs
-│   │       └── instructions/
-│   │           └── ...
+│   │       └── instructions/   # initialize_pool, open_receiver/payer, process_funding, etc.
 │   │
-│   └── exotic-vault/
+│   ├── exotic-vault/           # Asian & barrier options
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── state.rs
+│   │       ├── errors.rs
+│   │       └── instructions/   # initialize_vault, buy_option, check_barrier, settle, etc.
+│   │
+│   └── private-intents/        # Encrypted order submission
 │       └── src/
 │           ├── lib.rs
 │           ├── state.rs
-│           ├── errors.rs
-│           └── instructions/
-│               └── ...
-│
-├── oracle/                    # Oracle service (to be created)
-│   └── src/
-│       ├── index.ts
-│       ├── price/
-│       ├── funding/
-│       └── variance/
+│           ├── error.rs
+│           └── instructions/   # initialize_solver, submit_intent, execute_intent, etc.
 │
 ├── packages/
-│   └── sdk/                   # TypeScript SDK (to be created)
+│   └── private-intents/        # Private intents TypeScript library
 │       └── src/
-│           ├── index.ts
-│           ├── volswap/
-│           ├── funding-swap/
-│           └── exotic-vault/
+│           ├── encryption.ts   # NaCl box encryption via @veil/crypto
+│           ├── schemas.ts      # Intent schemas (variance, funding, exotic)
+│           ├── bridge.ts       # Cross-chain bridge clients
+│           └── client.ts       # PrivateIntentClient
 │
-├── apps/
-│   └── dashboard/             # Trading dashboard (to be created)
-│       └── src/
+├── sdk/                        # TypeScript SDK (@sigma-protocol/sdk)
+│   └── src/
 │
-├── tests/                     # Integration tests (to be created)
-│   ├── volswap/
-│   ├── funding-swap/
-│   └── exotic-vault/
+├── solver/                     # Solver service for intent execution
+│   └── src/
 │
-└── docs/
-    ├── SIGMA_ROADMAP.md
-    ├── VOLSWAP_IMPLEMENTATION_PLAN.md
-    ├── FUNDINGSWAP_IMPLEMENTATION_PLAN.md
-    └── EXOTICVAULT_IMPLEMENTATION_PLAN.md
+├── tests/                      # Integration tests (88 passing)
+│   ├── shared-oracle.ts
+│   ├── volswap.ts
+│   ├── funding-swap.ts
+│   ├── exotic-vault.ts
+│   └── private-intents.ts
+│
+├── frontend/                   # Next.js trading dashboard
+├── landing/                    # Landing page
+├── pitch-deck/                 # Investor pitch deck
+│
+└── docs/                       # Documentation
+    ├── 01-overview.md
+    ├── 02-volswap.md
+    ├── 03-funding-swap.md
+    ├── 04-exotic-vault.md
+    ├── 05-liquidity.md
+    ├── 06-use-cases.md
+    ├── 07-advanced-features.md
+    └── 08-private-intents.md
 ```
 
 ## Risk Management Framework
@@ -320,7 +349,7 @@ pub fn initiate_wind_down(ctx: Context<WindDown>) -> Result<()> {
 ## Success Metrics
 
 ### Technical Metrics
-- [ ] All programs compile and pass tests
+- [x] All programs compile and pass tests (88 tests, 0 failures, 0 warnings)
 - [ ] 90%+ test coverage
 - [ ] Zero critical audit findings
 - [ ] < 100ms SDK response time
@@ -346,18 +375,22 @@ pub fn initiate_wind_down(ctx: Context<WindDown>) -> Result<()> {
 
 ### External Dependencies
 - Pyth Network (price feeds)
+- Switchboard (oracle feeds)
 - Drift Protocol (funding rates)
 - Jupiter (funding rates, swaps)
-- Anchor framework
+- Anchor framework (0.32+)
+- Wormhole (cross-chain bridging)
+- Circle CCTP (native USDC bridging)
+- @veil/crypto (NaCl box encryption)
 
 ## Next Steps
 
-1. **Immediate**: Complete shared-oracle implementation
-2. **This Week**: Set up CI/CD pipeline
-3. **Next Week**: Begin VolSwap core development
-4. **Ongoing**: Security review and testing
+1. **Immediate**: Security audit of all programs
+2. **Short-term**: Devnet deployment and public testing
+3. **Mid-term**: Mainnet beta launch
+4. **Ongoing**: Performance optimization and feature iteration
 
 ---
 
-*Last Updated: February 2026*
-*Version: 0.1.0-alpha*
+*Last Updated: March 2026*
+*Version: 1.0.0-rc*

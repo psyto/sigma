@@ -11,8 +11,10 @@ Sigma brings institutional-grade volatility and exotic derivative instruments to
 | **Volatility Index (SVI)** | On-chain volatility index comparable to Volmex SVIV |
 | **CEX Funding Rates** | Aggregated funding rates from Binance, Bybit, OKX, and more |
 | **Secondary Market** | Trade positions before expiry via tokenized position market |
-| **Unified Oracle** | Shared infrastructure for price, variance, and funding data |
-| **Private Intents** | Encrypted order submission with cross-chain collateral support |
+| **Unified Oracle** | Shared infrastructure for price, variance, and funding data (Pyth + Switchboard) |
+| **Private Intents** | Encrypted order submission with solver execution and slippage protection |
+| **Cross-Chain Collateral** | Wormhole + Circle CCTP bridging from Ethereum/Arbitrum |
+| **Circuit Breaker** | Automatic trading halts during extreme market conditions |
 
 ## Protocols
 
@@ -179,7 +181,7 @@ sigma/
 
 - [Rust](https://rustup.rs/) (1.70+)
 - [Solana CLI](https://docs.solana.com/cli/install-solana-cli-tools) (1.18+)
-- [Anchor](https://www.anchor-lang.com/docs/installation) (0.30+)
+- [Anchor](https://www.anchor-lang.com/docs/installation) (0.32+)
 - [Node.js](https://nodejs.org/) (18+)
 
 ### Installation

@@ -305,9 +305,52 @@ For large orders (>$100k), we plan to implement M-of-N threshold decryption:
 Even with a trusted solver, the following are enforced on-chain:
 
 - **Deadline**: Orders expire if not executed by deadline
-- **Slippage**: Maximum slippage is enforced during execution
+- **Slippage**: Balance-based slippage enforcement (see below)
 - **Collateral**: Collateral is locked in PDA until execution/cancellation
 - **Owner-only cancellation**: Only the owner can cancel pending intents
+- **CPI Validation**: CPI data must contain a valid 8-byte Anchor discriminator
+- **Program Verification**: Target program IDs are validated before CPI dispatch
+
+### Slippage Enforcement
+
+Slippage is enforced using a balance-based verification mechanism:
+
+1. **Cap**: Maximum slippage is capped at 5000 bps (50%) to prevent abuse
+2. **Pre-CPI Snapshot**: The solver's token balance is recorded before CPI execution
+3. **Post-CPI Verification**: After CPI, the balance is reloaded and tokens spent are calculated
+4. **Enforcement**: `tokens_spent <= collateral_amount * (10000 + slippage_bps) / 10000`
+
+```rust
+// Slippage cap validation
+require!(slippage_bps <= 5000, PrivateIntentError::SlippageExceeded);
+
+// Balance-based verification
+let balance_before = solver_collateral.amount;
+// ... CPI execution ...
+let balance_after = solver_collateral.amount;
+let tokens_spent = balance_before.saturating_sub(balance_after);
+
+let max_allowed = (collateral_amount as u128)
+    .checked_mul(10000u128 + slippage_bps as u128)? / 10000u128;
+require!((tokens_spent as u128) <= max_allowed);
+```
+
+This protects users from the solver executing at unfavorable prices while still allowing reasonable price impact.
+
+### CPI Data and Execution
+
+The `execute_intent` instruction accepts a `cpi_data` parameter — a pre-built instruction payload containing the Anchor discriminator (8 bytes) and serialized arguments for the target program. The solver constructs this off-chain after decrypting the intent parameters.
+
+The CPI dispatch validates:
+- `cpi_data` length is at least 8 bytes (discriminator)
+- Target program ID matches the expected program for the intent type
+- Required remaining accounts are provided (minimum 6 for all intent types)
+
+| Intent Type | Target Program | Required Accounts |
+|-------------|---------------|-------------------|
+| VarianceSwap | VolSwap | program, pool, position, pool_vault, token_program, system_program |
+| FundingSwap | FundingSwap | program, pool, swap, pool_vault, token_program, system_program |
+| ExoticOption | ExoticVault | program, vault, option, vault_collateral, token_program, system_program (+sample_buffer for Asian) |
 
 ## Program ID
 
