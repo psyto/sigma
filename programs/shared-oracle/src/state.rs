@@ -21,6 +21,9 @@ pub struct PriceFeed {
     /// Optional Pyth price feed account
     pub pyth_feed: Option<Pubkey>,
 
+    /// Optional Switchboard V2 aggregator account
+    pub switchboard_feed: Option<Pubkey>,
+
     /// Minimum interval between samples (seconds)
     pub sample_interval_seconds: u64,
 
@@ -59,6 +62,18 @@ pub struct PriceFeed {
 
     /// Maximum staleness allowed (seconds)
     pub max_staleness_seconds: u64,
+
+    /// Circuit breaker: max allowed price deviation from last valid price (bps, 0 = disabled)
+    pub max_deviation_bps: u16,
+
+    /// Whether the circuit breaker has been triggered
+    pub is_circuit_broken: bool,
+
+    /// Timestamp when circuit breaker was triggered
+    pub circuit_break_timestamp: i64,
+
+    /// Last price that passed circuit breaker validation
+    pub last_valid_price: u64,
 
     pub bump: u8,
 }

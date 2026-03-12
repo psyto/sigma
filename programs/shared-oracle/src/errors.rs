@@ -47,6 +47,24 @@ pub enum OracleError {
     #[msg("Invalid price feed")]
     InvalidPriceFeed,
 
+    #[msg("No Switchboard feed configured for this price feed")]
+    NoSwitchboardFeed,
+
+    #[msg("Invalid Switchboard aggregator account")]
+    InvalidSwitchboardFeed,
+
+    #[msg("Switchboard price is negative or zero")]
+    InvalidSwitchboardPrice,
+
+    #[msg("Switchboard data is stale")]
+    SwitchboardDataStale,
+
+    #[msg("Circuit breaker triggered: price deviation exceeds threshold")]
+    CircuitBreakerTriggered,
+
+    #[msg("Feed is paused by circuit breaker")]
+    FeedCircuitBroken,
+
     // ============================================================================
     // Funding Feed Errors
     // ============================================================================

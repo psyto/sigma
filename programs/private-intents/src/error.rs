@@ -61,4 +61,10 @@ pub enum PrivateIntentError {
 
     #[msg("Insufficient collateral")]
     InsufficientCollateral,
+
+    #[msg("CPI execution to target program failed")]
+    CpiExecutionFailed,
+
+    #[msg("Invalid remaining accounts for CPI dispatch")]
+    InvalidRemainingAccounts,
 }

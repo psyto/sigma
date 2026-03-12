@@ -52,6 +52,11 @@ pub mod shared_oracle {
         instructions::price_feed::record_price_from_pyth(ctx)
     }
 
+    /// Record price from Switchboard V2 aggregator
+    pub fn record_price_from_switchboard(ctx: Context<RecordPriceFromSwitchboard>) -> Result<()> {
+        instructions::price_feed::record_price_from_switchboard(ctx)
+    }
+
     /// Update price feed configuration
     pub fn update_price_feed(
         ctx: Context<UpdatePriceFeed>,
@@ -59,6 +64,39 @@ pub mod shared_oracle {
         is_active: Option<bool>,
     ) -> Result<()> {
         instructions::price_feed::update_price_feed(ctx, new_interval, is_active)
+    }
+
+    /// Configure circuit breaker parameters for a price feed
+    pub fn configure_circuit_breaker(
+        ctx: Context<UpdatePriceFeed>,
+        max_deviation_bps: u16,
+    ) -> Result<()> {
+        let feed = &mut ctx.accounts.price_feed;
+        feed.max_deviation_bps = max_deviation_bps;
+        msg!(
+            "Circuit breaker configured: max deviation = {} bps (0 = disabled)",
+            max_deviation_bps
+        );
+        Ok(())
+    }
+
+    /// Configure Switchboard feed for a price feed
+    pub fn set_switchboard_feed(
+        ctx: Context<UpdatePriceFeed>,
+        switchboard_feed: Option<Pubkey>,
+    ) -> Result<()> {
+        let feed = &mut ctx.accounts.price_feed;
+        feed.switchboard_feed = switchboard_feed;
+        msg!("Switchboard feed updated: {:?}", switchboard_feed);
+        Ok(())
+    }
+
+    /// Reset circuit breaker after manual review (authority only)
+    pub fn reset_circuit_breaker(
+        ctx: Context<ResetCircuitBreaker>,
+        new_valid_price: Option<u64>,
+    ) -> Result<()> {
+        instructions::price_feed::reset_circuit_breaker(ctx, new_valid_price)
     }
 
     /// Transfer price feed authority
@@ -612,6 +650,43 @@ pub struct RecordPriceFromPyth<'info> {
         constraint = pyth_price_account.key() == price_feed.pyth_feed.unwrap_or_default() @ OracleError::InvalidPythFeed
     )]
     pub pyth_price_account: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RecordPriceFromSwitchboard<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = price_feed.is_active @ OracleError::FeedInactive,
+        constraint = price_feed.switchboard_feed.is_some() @ OracleError::NoSwitchboardFeed
+    )]
+    pub price_feed: Account<'info, PriceFeed>,
+
+    #[account(
+        mut,
+        seeds = [b"sample_buffer", price_feed.key().as_ref()],
+        bump = sample_buffer.bump
+    )]
+    pub sample_buffer: Account<'info, SampleBuffer>,
+
+    /// CHECK: Switchboard V2 aggregator account, validated in handler
+    #[account(
+        constraint = switchboard_aggregator.key() == price_feed.switchboard_feed.unwrap_or_default() @ OracleError::InvalidSwitchboardFeed
+    )]
+    pub switchboard_aggregator: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ResetCircuitBreaker<'info> {
+    #[account(
+        constraint = authority.key() == price_feed.authority @ OracleError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub price_feed: Account<'info, PriceFeed>,
 }
 
 #[derive(Accounts)]

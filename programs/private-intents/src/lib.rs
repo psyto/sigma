@@ -50,8 +50,8 @@ pub mod private_intents {
     }
 
     /// Execute a pending intent (solver only)
-    pub fn execute_intent(
-        ctx: Context<ExecuteIntent>,
+    pub fn execute_intent<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ExecuteIntent<'info>>,
         deadline: i64,
         slippage_bps: u16,
         result_position: Pubkey,
