@@ -42,7 +42,7 @@ pub fn handler<'info>(
     ctx: Context<'_, '_, 'info, 'info, crate::ExecuteIntent<'info>>,
     // Decrypted parameters for validation
     deadline: i64,
-    _slippage_bps: u16,
+    slippage_bps: u16,
     // Execution results
     result_position: Pubkey,
     // Pre-built CPI instruction data (Anchor discriminator + serialized args)
@@ -59,6 +59,9 @@ pub fn handler<'info>(
         cpi_data.len() >= 8,
         PrivateIntentError::InvalidRemainingAccounts
     );
+
+    // Cap slippage to 50% (5000 bps) to prevent abuse
+    require!(slippage_bps <= 5000, PrivateIntentError::SlippageExceeded);
 
     let intent = &ctx.accounts.intent;
 
@@ -93,6 +96,10 @@ pub fn handler<'info>(
         "Collateral transferred: {} tokens from intent vault to solver",
         collateral_amount
     );
+
+    // Snapshot solver's token balance before CPI to measure actual cost
+    ctx.accounts.solver_collateral.reload()?;
+    let balance_before = ctx.accounts.solver_collateral.amount;
 
     // Dispatch CPI to the target derivative program based on intent type
     let remaining = &ctx.remaining_accounts;
@@ -132,6 +139,30 @@ pub fn handler<'info>(
                 )?;
             }
         }
+
+        // Reload balance after CPI to check actual tokens consumed
+        ctx.accounts.solver_collateral.reload()?;
+        let balance_after = ctx.accounts.solver_collateral.amount;
+        let tokens_spent = balance_before.saturating_sub(balance_after);
+
+        // Enforce slippage: tokens spent must not exceed collateral * (1 + slippage%)
+        // This protects users from the solver executing at unfavorable prices
+        let max_allowed = (collateral_amount as u128)
+            .checked_mul(10000u128 + slippage_bps as u128)
+            .ok_or(PrivateIntentError::ArithmeticOverflow)?
+            / 10000u128;
+
+        require!(
+            (tokens_spent as u128) <= max_allowed,
+            PrivateIntentError::SlippageExceeded
+        );
+
+        msg!(
+            "Slippage check passed: spent {} / max {} ({}bps tolerance)",
+            tokens_spent,
+            max_allowed,
+            slippage_bps
+        );
     }
 
     // Update intent state

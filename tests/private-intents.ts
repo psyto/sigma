@@ -876,6 +876,76 @@ describe("private-intents", () => {
           expect(e.message).to.not.be.empty;
         }
       });
+
+      it("should reject execute_intent with slippage_bps over 5000", async () => {
+        // Submit an intent to test against
+        const intentId = new BN(999);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+        const targetPool = Keypair.generate().publicKey;
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0x22);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        await program.methods
+          .submitIntent(
+            intentId,
+            { varianceSwap: {} },
+            new BN(5_000_000),
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA,
+            targetPool: targetPool,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: intentVaultPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        // Try to execute with slippage > 5000 bps (50%)
+        const solverTokenAccount = await getOrCreateAssociatedTokenAccount(
+          provider.connection,
+          solver,
+          collateralMint,
+          solver.publicKey
+        );
+
+        const cpiData = Buffer.alloc(8); // Minimum 8 bytes (dummy discriminator)
+
+        try {
+          await program.methods
+            .executeIntent(
+              new BN(Math.floor(Date.now() / 1000) + 3600), // deadline 1h from now
+              6000, // slippage_bps = 60%, exceeds 50% cap
+              Keypair.generate().publicKey, // result_position
+              cpiData
+            )
+            .accounts({
+              solver: solver.publicKey,
+              solverConfig: solverConfigPDA,
+              intent: intentPDA,
+              targetPool: targetPool,
+              collateralMint: collateralMint,
+              intentVault: intentVaultPDA,
+              solverCollateral: solverTokenAccount.address,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([solver])
+            .rpc();
+
+          expect.fail("Should have thrown - slippage too high");
+        } catch (e: any) {
+          expect(e.message).to.include("SlippageExceeded");
+        }
+      });
     });
   });
 });
