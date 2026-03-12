@@ -28,7 +28,6 @@ describe("funding-swap", () => {
   const marketSymbol = "SOL-PERP";
 
   before(async () => {
-    // Create collateral mint (USDC-like)
     collateralMint = await createMint(
       provider.connection,
       (provider.wallet as any).payer,
@@ -37,7 +36,6 @@ describe("funding-swap", () => {
       6
     );
 
-    // Initialize funding feed in oracle program
     [fundingFeedPDA] = PublicKey.findProgramAddressSync(
       [Buffer.from("funding_feed"), Buffer.from(marketSymbol)],
       oracleProgram.programId
@@ -56,7 +54,6 @@ describe("funding-swap", () => {
       console.log("Funding feed may already exist");
     }
 
-    // Create user's collateral token account
     userCollateralAccount = await createAssociatedTokenAccount(
       provider.connection,
       (provider.wallet as any).payer,
@@ -64,14 +61,13 @@ describe("funding-swap", () => {
       authority.publicKey
     );
 
-    // Mint collateral to user
     await mintTo(
       provider.connection,
       (provider.wallet as any).payer,
       collateralMint,
       userCollateralAccount,
       authority.publicKey,
-      1_000_000_000_000 // $1,000,000
+      1_000_000_000_000
     );
   });
 
@@ -92,16 +88,19 @@ describe("funding-swap", () => {
       );
 
       const poolParams = {
-        swapDurationSeconds: new BN(604800), // 7 days
-        minNotional: new BN(1_000_000_000), // $1,000
-        maxNotional: new BN(1_000_000_000_000), // $1,000,000
-        feeRateBps: 30, // 0.3%
-        maxRateSpreadBps: 500, // 5% max spread
+        marketSymbol: marketSymbol,
+        fundingPeriodSeconds: new BN(1),
+        minNotional: new BN(1_000_000_000),
+        maxNotional: new BN(1_000_000_000_000),
+        maxDurationPeriods: 90,
+        feeRateBps: 30,
+        initialFixedRateBps: 50,
+        earlyExitPenaltyBps: 500,
       };
 
       try {
         await program.methods
-          .initializePool(marketSymbol, poolParams)
+          .initializePool(poolParams)
           .accounts({
             authority: authority.publicKey,
             collateralMint: collateralMint,
@@ -125,7 +124,7 @@ describe("funding-swap", () => {
     it("should update pool parameters", async () => {
       try {
         await program.methods
-          .updatePool(40, null, null, null)
+          .updatePool(40, null, null)
           .accounts({
             authority: authority.publicKey,
             pool: poolPDA,
@@ -146,12 +145,11 @@ describe("funding-swap", () => {
   // ============================================================================
 
   describe("Funding Swap Positions", () => {
-    let receiveFixedPositionPDA: PublicKey;
-    let payFixedPositionPDA: PublicKey;
+    let receiverSwapPDA: PublicKey;
+    let payerSwapPDA: PublicKey;
     let lpAccountPDA: PublicKey;
 
     before(async () => {
-      // Deposit liquidity first
       [lpAccountPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("lp"), poolPDA.toBuffer(), authority.publicKey.toBuffer()],
         program.programId
@@ -175,28 +173,31 @@ describe("funding-swap", () => {
       }
     });
 
-    it("should open a receive-fixed swap position", async () => {
-      const notional = new BN(50_000_000_000); // $50,000
-      const fixedRateBps = new BN(40); // 0.04% per 8h
-      const swapId = new BN(1);
+    it("should open a receiver swap position", async () => {
+      const pool = await program.account.fundingPool.fetch(poolPDA);
+      const swapIndex = pool.totalSwaps;
 
-      [receiveFixedPositionPDA] = PublicKey.findProgramAddressSync(
+      const notional = new BN(50_000_000_000);
+      const durationPeriods = 10;
+      const maxFixedRateBps = 100;
+
+      [receiverSwapPDA] = PublicKey.findProgramAddressSync(
         [
-          Buffer.from("swap_position"),
+          Buffer.from("swap"),
           poolPDA.toBuffer(),
           authority.publicKey.toBuffer(),
-          swapId.toArrayLike(Buffer, "le", 8),
+          swapIndex.toArrayLike(Buffer, "le", 8),
         ],
         program.programId
       );
 
       try {
         await program.methods
-          .openReceiveFixed(notional, fixedRateBps, swapId)
+          .openReceiver(notional, durationPeriods, maxFixedRateBps)
           .accounts({
             user: authority.publicKey,
             pool: poolPDA,
-            position: receiveFixedPositionPDA,
+            swap: receiverSwapPDA,
             userCollateral: userCollateralAccount,
             poolVault: poolVaultPDA,
             collateralMint: collateralMint,
@@ -205,17 +206,16 @@ describe("funding-swap", () => {
           })
           .rpc();
 
-        const position = await program.account.fundingSwapPosition.fetch(receiveFixedPositionPDA);
-        expect(position.isReceiveFixed).to.be.true;
+        const position = await program.account.fundingSwapPosition.fetch(receiverSwapPDA);
+        expect(position.isReceiver).to.be.true;
         expect(position.notional.toNumber()).to.equal(50_000_000_000);
-        expect(position.fixedRateBps.toNumber()).to.equal(40);
       } catch (e) {
-        console.log("Open receive-fixed error:", e);
+        console.log("Open receiver error:", e);
         throw e;
       }
     });
 
-    it("should open a pay-fixed swap position", async () => {
+    it("should open a payer swap position", async () => {
       const newUser = Keypair.generate();
       const sig = await provider.connection.requestAirdrop(
         newUser.publicKey,
@@ -239,27 +239,30 @@ describe("funding-swap", () => {
         100_000_000_000
       );
 
-      const notional = new BN(25_000_000_000); // $25,000
-      const fixedRateBps = new BN(35); // 0.035% per 8h
-      const swapId = new BN(1);
+      const pool = await program.account.fundingPool.fetch(poolPDA);
+      const swapIndex = pool.totalSwaps;
 
-      [payFixedPositionPDA] = PublicKey.findProgramAddressSync(
+      const notional = new BN(25_000_000_000);
+      const durationPeriods = 10;
+      const minFixedRateBps = 0;
+
+      [payerSwapPDA] = PublicKey.findProgramAddressSync(
         [
-          Buffer.from("swap_position"),
+          Buffer.from("swap"),
           poolPDA.toBuffer(),
           newUser.publicKey.toBuffer(),
-          swapId.toArrayLike(Buffer, "le", 8),
+          swapIndex.toArrayLike(Buffer, "le", 8),
         ],
         program.programId
       );
 
       try {
         await program.methods
-          .openPayFixed(notional, fixedRateBps, swapId)
+          .openPayer(notional, durationPeriods, minFixedRateBps)
           .accounts({
             user: newUser.publicKey,
             pool: poolPDA,
-            position: payFixedPositionPDA,
+            swap: payerSwapPDA,
             userCollateral: newUserCollateral,
             poolVault: poolVaultPDA,
             collateralMint: collateralMint,
@@ -269,19 +272,18 @@ describe("funding-swap", () => {
           .signers([newUser])
           .rpc();
 
-        const position = await program.account.fundingSwapPosition.fetch(payFixedPositionPDA);
-        expect(position.isReceiveFixed).to.be.false;
+        const position = await program.account.fundingSwapPosition.fetch(payerSwapPDA);
+        expect(position.isReceiver).to.be.false;
         expect(position.notional.toNumber()).to.equal(25_000_000_000);
       } catch (e) {
-        console.log("Open pay-fixed error:", e);
+        console.log("Open payer error:", e);
         throw e;
       }
     });
 
-    it("should record a funding payment", async () => {
-      // First, record a funding rate in the oracle
+    it("should process a funding period", async () => {
       await oracleProgram.methods
-        .recordFundingRate(new BN(50)) // 0.05% rate
+        .recordFundingRate(new BN(50))
         .accounts({
           authority: authority.publicKey,
           fundingFeed: fundingFeedPDA,
@@ -290,20 +292,18 @@ describe("funding-swap", () => {
 
       try {
         await program.methods
-          .recordFundingPayment()
+          .processFundingPeriod()
           .accounts({
             authority: authority.publicKey,
             pool: poolPDA,
-            position: receiveFixedPositionPDA,
             fundingFeed: fundingFeedPDA,
           })
           .rpc();
 
-        const position = await program.account.fundingSwapPosition.fetch(receiveFixedPositionPDA);
-        // Payment should be recorded
-        expect(position.totalPayments.toNumber()).to.not.equal(0);
+        const pool = await program.account.fundingPool.fetch(poolPDA);
+        expect(pool.totalPeriodsProcessed.toNumber()).to.be.greaterThan(0);
       } catch (e) {
-        console.log("Record funding payment error:", e);
+        console.log("Process funding period error:", e);
         throw e;
       }
     });
@@ -315,47 +315,42 @@ describe("funding-swap", () => {
           .accounts({
             user: authority.publicKey,
             pool: poolPDA,
-            position: receiveFixedPositionPDA,
-            userCollateral: userCollateralAccount,
-            poolVault: poolVaultPDA,
-            collateralMint: collateralMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            swap: receiverSwapPDA,
           })
           .rpc();
 
-        // Position status should be settled
-        const position = await program.account.fundingSwapPosition.fetch(receiveFixedPositionPDA);
+        const position = await program.account.fundingSwapPosition.fetch(receiverSwapPDA);
         expect(position.status).to.deep.equal({ settled: {} });
       } catch (e) {
-        // May fail if not expired yet
         console.log("Settle swap (may not be expired yet):", e);
       }
     });
 
     it("should close swap position early", async () => {
-      // Create a new position to close early
-      const swapId = new BN(2);
-      const [newPositionPDA] = PublicKey.findProgramAddressSync(
+      const pool = await program.account.fundingPool.fetch(poolPDA);
+      const swapIndex = pool.totalSwaps;
+
+      const [newSwapPDA] = PublicKey.findProgramAddressSync(
         [
-          Buffer.from("swap_position"),
+          Buffer.from("swap"),
           poolPDA.toBuffer(),
           authority.publicKey.toBuffer(),
-          swapId.toArrayLike(Buffer, "le", 8),
+          swapIndex.toArrayLike(Buffer, "le", 8),
         ],
         program.programId
       );
 
       try {
         await program.methods
-          .openReceiveFixed(
+          .openReceiver(
             new BN(10_000_000_000),
-            new BN(45),
-            swapId
+            10,
+            100
           )
           .accounts({
             user: authority.publicKey,
             pool: poolPDA,
-            position: newPositionPDA,
+            swap: newSwapPDA,
             userCollateral: userCollateralAccount,
             poolVault: poolVaultPDA,
             collateralMint: collateralMint,
@@ -369,17 +364,16 @@ describe("funding-swap", () => {
           .accounts({
             user: authority.publicKey,
             pool: poolPDA,
-            position: newPositionPDA,
-            userCollateral: userCollateralAccount,
+            swap: newSwapPDA,
             poolVault: poolVaultPDA,
+            userCollateral: userCollateralAccount,
             collateralMint: collateralMint,
             tokenProgram: TOKEN_PROGRAM_ID,
           })
           .rpc();
 
-        // Position should be closed
         try {
-          await program.account.fundingSwapPosition.fetch(newPositionPDA);
+          await program.account.fundingSwapPosition.fetch(newSwapPDA);
           expect.fail("Position should be closed");
         } catch (e: any) {
           expect(e.message).to.include("Account does not exist");
@@ -430,28 +424,31 @@ describe("funding-swap", () => {
   // ============================================================================
 
   describe("Error Cases", () => {
-    it("should reject swap with excessive spread", async () => {
-      const notional = new BN(10_000_000_000);
-      const fixedRateBps = new BN(1000); // 10% - too high
-      const swapId = new BN(999);
+    it("should reject swap with rate exceeding limit", async () => {
+      const pool = await program.account.fundingPool.fetch(poolPDA);
+      const swapIndex = pool.totalSwaps;
 
-      const [positionPDA] = PublicKey.findProgramAddressSync(
+      const notional = new BN(10_000_000_000);
+      const durationPeriods = 10;
+      const maxFixedRateBps = -100;
+
+      const [swapPDA] = PublicKey.findProgramAddressSync(
         [
-          Buffer.from("swap_position"),
+          Buffer.from("swap"),
           poolPDA.toBuffer(),
           authority.publicKey.toBuffer(),
-          swapId.toArrayLike(Buffer, "le", 8),
+          swapIndex.toArrayLike(Buffer, "le", 8),
         ],
         program.programId
       );
 
       try {
         await program.methods
-          .openReceiveFixed(notional, fixedRateBps, swapId)
+          .openReceiver(notional, durationPeriods, maxFixedRateBps)
           .accounts({
             user: authority.publicKey,
             pool: poolPDA,
-            position: positionPDA,
+            swap: swapPDA,
             userCollateral: userCollateralAccount,
             poolVault: poolVaultPDA,
             collateralMint: collateralMint,
@@ -460,34 +457,37 @@ describe("funding-swap", () => {
           })
           .rpc();
 
-        expect.fail("Should have rejected due to excessive spread");
+        expect.fail("Should have rejected due to rate exceeding limit");
       } catch (e: any) {
-        expect(e.message).to.include("SpreadTooHigh");
+        expect(e.message).to.include("RateExceedsLimit");
       }
     });
 
     it("should reject notional below minimum", async () => {
-      const notional = new BN(100_000_000); // $100, below minimum
-      const fixedRateBps = new BN(40);
-      const swapId = new BN(998);
+      const pool = await program.account.fundingPool.fetch(poolPDA);
+      const swapIndex = pool.totalSwaps;
 
-      const [positionPDA] = PublicKey.findProgramAddressSync(
+      const notional = new BN(100_000_000);
+      const durationPeriods = 10;
+      const maxFixedRateBps = 100;
+
+      const [swapPDA] = PublicKey.findProgramAddressSync(
         [
-          Buffer.from("swap_position"),
+          Buffer.from("swap"),
           poolPDA.toBuffer(),
           authority.publicKey.toBuffer(),
-          swapId.toArrayLike(Buffer, "le", 8),
+          swapIndex.toArrayLike(Buffer, "le", 8),
         ],
         program.programId
       );
 
       try {
         await program.methods
-          .openReceiveFixed(notional, fixedRateBps, swapId)
+          .openReceiver(notional, durationPeriods, maxFixedRateBps)
           .accounts({
             user: authority.publicKey,
             pool: poolPDA,
-            position: positionPDA,
+            swap: swapPDA,
             userCollateral: userCollateralAccount,
             poolVault: poolVaultPDA,
             collateralMint: collateralMint,

@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::{
     errors::OracleError,
-    state::{FundingFeed, FundingRateSample},
+    state::FundingRateSample,
     InitializeFundingFeed, RecordFundingRate, UpdateFundingFeed,
 };
 

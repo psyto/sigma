@@ -53,7 +53,7 @@ describe("exotic-vault", () => {
 
     try {
       await oracleProgram.methods
-        .initializePriceFeed("SOL", new BN(60), 1000)
+        .initializePriceFeed("SOL", new BN(1), 360)
         .accounts({
           authority: authority.publicKey,
           assetMint: underlyingMint.publicKey,
@@ -677,7 +677,7 @@ describe("exotic-vault", () => {
 
         expect.fail("Should have rejected due to invalid duration");
       } catch (e: any) {
-        expect(e.message).to.include("InvalidDuration");
+        expect(e.message).to.include("DurationTooLong");
       }
     });
 

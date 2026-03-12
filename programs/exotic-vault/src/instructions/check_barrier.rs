@@ -13,7 +13,7 @@ pub fn handler(ctx: Context<CheckBarrier>) -> Result<()> {
 
     // Read price from oracle
     let price_feed_data = ctx.accounts.price_feed.try_borrow_data()?;
-    let price_feed = PriceFeed::try_deserialize(&mut &price_feed_data[8..])?;
+    let price_feed = PriceFeed::try_deserialize(&mut &price_feed_data[..])?;
 
     // Check price staleness
     require!(

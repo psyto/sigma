@@ -41,6 +41,11 @@ pub fn handler(
         vaa_hash.len() == 32,
         PrivateIntentError::InvalidVaa
     );
+    // Ensure vaa_hash is not all zeros (i.e., actually contains a hash)
+    require!(
+        vaa_hash.iter().any(|&b| b != 0),
+        PrivateIntentError::InvalidVaa
+    );
     require!(
         source_chain != CollateralSource::Native,
         PrivateIntentError::InvalidVaa

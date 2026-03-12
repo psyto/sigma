@@ -661,6 +661,7 @@ name = "exotic-vault"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "anchor-spl",
  "blake3",
  "shared-oracle",
  "spl-token 7.0.0",
@@ -725,6 +726,7 @@ name = "funding-swap"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "anchor-spl",
  "blake3",
  "shared-oracle",
  "spl-token 7.0.0",
@@ -2920,6 +2922,7 @@ name = "volswap"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "anchor-spl",
  "blake3",
  "shared-oracle",
  "spl-token 7.0.0",

@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Token, TokenAccount, Mint};
 
 declare_id!("6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P");
 
@@ -6,7 +7,10 @@ pub mod state;
 pub mod errors;
 pub mod instructions;
 
-use state::*;
+use state::{
+    ExoticVault, ExoticOption, PriceSampleBuffer, LiquidityProvider,
+    OptionType, OptionStatus,
+};
 use errors::ExoticVaultError;
 
 /// ExoticVault - Asian & Barrier Options Protocol
@@ -151,8 +155,7 @@ pub struct InitializeVault<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// CHECK: Collateral mint (USDC)
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
     /// CHECK: Underlying asset mint (e.g., SOL)
     pub underlying_mint: AccountInfo<'info>,
@@ -170,16 +173,17 @@ pub struct InitializeVault<'info> {
     )]
     pub vault: Account<'info, ExoticVault>,
 
-    /// CHECK: Vault collateral (will be initialized as token account)
     #[account(
-        mut,
+        init,
+        payer = authority,
         seeds = [b"vault_collateral", vault.key().as_ref()],
-        bump
+        bump,
+        token::mint = collateral_mint,
+        token::authority = vault_collateral
     )]
-    pub vault_collateral: AccountInfo<'info>,
+    pub vault_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }

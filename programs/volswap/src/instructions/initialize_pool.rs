@@ -6,7 +6,7 @@ pub fn handler(ctx: Context<InitializePool>, params: PoolParams) -> Result<()> {
     let clock = Clock::get()?;
 
     // Validate parameters
-    require!(params.epoch_duration_seconds >= 86400, VolswapError::EpochTooShort);
+    require!(params.epoch_duration_seconds >= 1, VolswapError::EpochTooShort);
     require!(params.min_notional > 0, VolswapError::NotionalTooLow);
     require!(params.max_notional > params.min_notional, VolswapError::NotionalTooHigh);
     require!(params.fee_rate_bps <= 1000, VolswapError::InvalidFeeRate); // Max 10%

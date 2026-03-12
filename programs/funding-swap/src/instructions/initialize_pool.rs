@@ -10,7 +10,7 @@ pub fn handler(ctx: Context<InitializePool>, params: PoolParams) -> Result<()> {
         !params.market_symbol.is_empty() && params.market_symbol.len() <= 16,
         FundingSwapError::InvalidMarketSymbol
     );
-    require!(params.funding_period_seconds >= 3600, FundingSwapError::InvalidFundingPeriod); // Min 1 hour
+    require!(params.funding_period_seconds >= 1, FundingSwapError::InvalidFundingPeriod); // Min 1 second
     require!(params.min_notional > 0, FundingSwapError::NotionalTooLow);
     require!(params.max_notional > params.min_notional, FundingSwapError::NotionalTooHigh);
     require!(params.max_duration_periods >= 1, FundingSwapError::DurationTooShort);

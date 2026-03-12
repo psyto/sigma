@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::{
     errors::OracleError,
-    state::{AggregatedFeed, AggregationMethod, PriceSource, PriceSourceType},
+    state::{AggregationMethod, PriceSource, PriceSourceType},
     AddPriceSource, InitializeAggregatedFeed, UpdateAggregatedPrice,
 };
 

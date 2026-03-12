@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer, CloseAccount, Mint};
+use anchor_spl::token::{Token, TokenAccount, Mint};
 
 declare_id!("AaZSJxm7jkqb9Tjo38wU66w6owuyrDtqw3ksnyHMN9ow");
 
@@ -50,13 +50,16 @@ pub mod private_intents {
     }
 
     /// Execute a pending intent (solver only)
+    /// The solver must provide `cpi_data` containing the pre-built instruction data
+    /// (Anchor discriminator + serialized args) for the target derivative program.
     pub fn execute_intent<'info>(
         ctx: Context<'_, '_, 'info, 'info, ExecuteIntent<'info>>,
         deadline: i64,
         slippage_bps: u16,
         result_position: Pubkey,
+        cpi_data: Vec<u8>,
     ) -> Result<()> {
-        instructions::execute_intent::handler(ctx, deadline, slippage_bps, result_position)
+        instructions::execute_intent::handler(ctx, deadline, slippage_bps, result_position, cpi_data)
     }
 
     /// Cancel a pending intent and reclaim collateral (owner only)
@@ -308,10 +311,17 @@ pub struct BridgeCollateral<'info> {
     )]
     pub intent_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: Wormhole Core Bridge program
+    /// CHECK: Wormhole Core Bridge program. Validated in handler: the posted_vaa
+    /// account must be owned by this program, and the posted_vaa PDA is re-derived
+    /// using [b"PostedVAA", vaa_hash] under this program to ensure authenticity.
+    /// The program must be executable (i.e., a deployed program, not an arbitrary account).
+    #[account(executable)]
     pub wormhole_program: AccountInfo<'info>,
 
-    /// CHECK: Wormhole posted VAA account
+    /// CHECK: Wormhole posted VAA account. Validated in handler: (1) owner must equal
+    /// wormhole_program, (2) account must contain data (is initialized), and (3) the
+    /// account key must match the PDA derived from [b"PostedVAA", vaa_hash] under
+    /// wormhole_program, ensuring the VAA was genuinely posted and verified by guardians.
     pub posted_vaa: AccountInfo<'info>,
 
     pub token_program: Program<'info, Token>,

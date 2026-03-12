@@ -45,11 +45,20 @@ pub fn handler<'info>(
     _slippage_bps: u16,
     // Execution results
     result_position: Pubkey,
+    // Pre-built CPI instruction data (Anchor discriminator + serialized args)
+    // constructed by the solver off-chain for the target program
+    cpi_data: Vec<u8>,
 ) -> Result<()> {
     let clock = Clock::get()?;
 
     // Verify deadline hasn't passed
     require!(clock.unix_timestamp <= deadline, PrivateIntentError::IntentExpired);
+
+    // Validate CPI data contains at least the 8-byte Anchor discriminator
+    require!(
+        cpi_data.len() >= 8,
+        PrivateIntentError::InvalidRemainingAccounts
+    );
 
     let intent = &ctx.accounts.intent;
 
@@ -97,6 +106,7 @@ pub fn handler<'info>(
                     &ctx.accounts.solver_collateral,
                     &ctx.accounts.collateral_mint,
                     collateral_amount,
+                    &cpi_data,
                 )?;
             }
             IntentType::FundingSwap => {
@@ -107,6 +117,7 @@ pub fn handler<'info>(
                     &ctx.accounts.solver_collateral,
                     &ctx.accounts.collateral_mint,
                     collateral_amount,
+                    &cpi_data,
                 )?;
             }
             IntentType::ExoticOption => {
@@ -117,6 +128,7 @@ pub fn handler<'info>(
                     &ctx.accounts.solver_collateral,
                     &ctx.accounts.collateral_mint,
                     collateral_amount,
+                    &cpi_data,
                 )?;
             }
         }
@@ -153,6 +165,7 @@ fn dispatch_variance_swap_cpi<'info>(
     solver_collateral: &Account<'info, anchor_spl::token::TokenAccount>,
     collateral_mint: &Account<'info, anchor_spl::token::Mint>,
     notional: u64,
+    cpi_data: &[u8],
 ) -> Result<()> {
     let volswap_program = &remaining[0];
     let pool = &remaining[1];
@@ -182,20 +195,12 @@ fn dispatch_variance_swap_cpi<'info>(
             anchor_lang::solana_program::instruction::AccountMeta::new_readonly(token_program.key(), false),
             anchor_lang::solana_program::instruction::AccountMeta::new_readonly(system_program.key(), false),
         ],
-        // Anchor discriminator for open_long + args
-        // The solver provides the correct instruction data via remaining_accounts encoding
-        data: anchor_lang::solana_program::instruction::Instruction::new_with_bytes(
-            expected_volswap,
-            &[],
-            vec![],
-        ).data,
+        // Solver-provided instruction data containing Anchor discriminator + serialized args
+        data: cpi_data.to_vec(),
     };
 
-    // Note: Full CPI instruction data (discriminator + args) should be constructed
-    // by the solver off-chain. For now, log the intent for the solver to execute
-    // the position opening in a follow-up transaction.
     msg!(
-        "VolSwap CPI prepared: pool={}, notional={}, solver={}",
+        "VolSwap CPI dispatched: pool={}, notional={}, solver={}",
         pool.key(),
         notional,
         solver.key()
@@ -226,6 +231,7 @@ fn dispatch_funding_swap_cpi<'info>(
     solver_collateral: &Account<'info, anchor_spl::token::TokenAccount>,
     collateral_mint: &Account<'info, anchor_spl::token::Mint>,
     notional: u64,
+    cpi_data: &[u8],
 ) -> Result<()> {
     let funding_program = &remaining[0];
     let pool = &remaining[1];
@@ -252,15 +258,12 @@ fn dispatch_funding_swap_cpi<'info>(
             anchor_lang::solana_program::instruction::AccountMeta::new_readonly(token_program.key(), false),
             anchor_lang::solana_program::instruction::AccountMeta::new_readonly(system_program.key(), false),
         ],
-        data: anchor_lang::solana_program::instruction::Instruction::new_with_bytes(
-            expected_funding,
-            &[],
-            vec![],
-        ).data,
+        // Solver-provided instruction data containing Anchor discriminator + serialized args
+        data: cpi_data.to_vec(),
     };
 
     msg!(
-        "FundingSwap CPI prepared: pool={}, notional={}, solver={}",
+        "FundingSwap CPI dispatched: pool={}, notional={}, solver={}",
         pool.key(),
         notional,
         solver.key()
@@ -290,6 +293,7 @@ fn dispatch_exotic_option_cpi<'info>(
     solver_collateral: &Account<'info, anchor_spl::token::TokenAccount>,
     collateral_mint: &Account<'info, anchor_spl::token::Mint>,
     notional: u64,
+    cpi_data: &[u8],
 ) -> Result<()> {
     let exotic_program = &remaining[0];
     let vault = &remaining[1];
@@ -338,15 +342,12 @@ fn dispatch_exotic_option_cpi<'info>(
     let ix = anchor_lang::solana_program::instruction::Instruction {
         program_id: expected_exotic,
         accounts: account_metas,
-        data: anchor_lang::solana_program::instruction::Instruction::new_with_bytes(
-            expected_exotic,
-            &[],
-            vec![],
-        ).data,
+        // Solver-provided instruction data containing Anchor discriminator + serialized args
+        data: cpi_data.to_vec(),
     };
 
     msg!(
-        "ExoticVault CPI prepared: vault={}, notional={}, solver={}",
+        "ExoticVault CPI dispatched: vault={}, notional={}, solver={}",
         vault.key(),
         notional,
         solver.key()

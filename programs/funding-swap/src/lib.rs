@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Token, TokenAccount, Mint};
 
 declare_id!("GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx");
 
@@ -120,8 +121,7 @@ pub struct InitializePool<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// CHECK: Collateral mint (e.g., USDC)
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
     /// Funding rate feed from shared oracle
     /// CHECK: Validated via seeds in shared-oracle
@@ -136,16 +136,17 @@ pub struct InitializePool<'info> {
     )]
     pub pool: Account<'info, FundingPool>,
 
-    /// CHECK: Pool vault for collateral (will be initialized as token account)
     #[account(
-        mut,
+        init,
+        payer = authority,
         seeds = [b"pool_vault", pool.key().as_ref()],
-        bump
+        bump,
+        token::mint = collateral_mint,
+        token::authority = pool_vault
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }

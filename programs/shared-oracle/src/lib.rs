@@ -533,7 +533,7 @@ pub mod shared_oracle {
     pub fn buy_position(ctx: Context<BuyPosition>) -> Result<()> {
         let token = &mut ctx.accounts.position_token;
         let market = &mut ctx.accounts.secondary_market;
-        let clock = Clock::get()?;
+        let _clock = Clock::get()?;
 
         require!(token.is_listed, OracleError::NotListed);
         require!(token.is_active, OracleError::PositionInactive);

@@ -325,12 +325,557 @@ describe("private-intents", () => {
     });
   });
 
-  // TODO: Add on-chain tests once program is built
-  // describe("On-Chain Operations", () => {
-  //   it("should initialize solver config", async () => {});
-  //   it("should submit encrypted intent", async () => {});
-  //   it("should execute intent (solver)", async () => {});
-  //   it("should cancel intent (owner)", async () => {});
-  //   it("should claim result (owner)", async () => {});
-  // });
+  // ============================================================================
+  // On-Chain Integration Tests
+  // ============================================================================
+
+  describe("On-Chain Operations", () => {
+    // Program reference
+    type PrivateIntents = any;
+    const program = anchor.workspace.PrivateIntents as Program<PrivateIntents>;
+
+    let solverConfigPDA: PublicKey;
+    let solverConfigBump: number;
+
+    // Helper to derive intent PDA
+    function deriveIntentPDA(
+      owner: PublicKey,
+      intentId: BN
+    ): [PublicKey, number] {
+      return PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("encrypted_intent"),
+          owner.toBuffer(),
+          intentId.toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId
+      );
+    }
+
+    // Helper to derive intent vault PDA
+    function deriveIntentVaultPDA(intentKey: PublicKey): [PublicKey, number] {
+      return PublicKey.findProgramAddressSync(
+        [Buffer.from("intent_vault"), intentKey.toBuffer()],
+        program.programId
+      );
+    }
+
+    before(async () => {
+      // Derive solver config PDA
+      [solverConfigPDA, solverConfigBump] = PublicKey.findProgramAddressSync(
+        [Buffer.from("solver_config")],
+        program.programId
+      );
+    });
+
+    // ========================================================================
+    // Initialize Solver
+    // ========================================================================
+
+    describe("initialize_solver", () => {
+      it("should initialize solver config with valid params", async () => {
+        const feeBps = 10; // 0.1%
+        const minCollateral = new BN(1_000_000); // 1 USDC
+        const maxPayloadSize = 256;
+
+        try {
+          await program.methods
+            .initializeSolver(
+              solver.publicKey,
+              feeBps,
+              minCollateral,
+              maxPayloadSize
+            )
+            .accounts({
+              authority: authority.publicKey,
+              solverConfig: solverConfigPDA,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([authority])
+            .rpc();
+
+          // Fetch and verify state
+          const config = await program.account.solverConfig.fetch(
+            solverConfigPDA
+          );
+          expect(config.authority.toString()).to.equal(
+            authority.publicKey.toString()
+          );
+          expect(config.solverPubkey.toString()).to.equal(
+            solver.publicKey.toString()
+          );
+          expect(config.feeBps).to.equal(feeBps);
+          expect(config.minCollateral.toNumber()).to.equal(
+            minCollateral.toNumber()
+          );
+          expect(config.maxPayloadSize).to.equal(maxPayloadSize);
+          expect(config.isActive).to.be.true;
+          expect(config.totalIntents.toNumber()).to.equal(0);
+          expect(config.totalVolume.toNumber()).to.equal(0);
+        } catch (e) {
+          console.log("Initialize solver error:", e);
+          throw e;
+        }
+      });
+
+      it("should reject re-initialization (PDA already exists)", async () => {
+        try {
+          await program.methods
+            .initializeSolver(
+              solver.publicKey,
+              10,
+              new BN(1_000_000),
+              256
+            )
+            .accounts({
+              authority: authority.publicKey,
+              solverConfig: solverConfigPDA,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([authority])
+            .rpc();
+
+          expect.fail("Should have thrown - PDA already initialized");
+        } catch (e: any) {
+          // Account already exists error from Anchor/runtime
+          expect(e.message).to.not.be.empty;
+        }
+      });
+    });
+
+    // ========================================================================
+    // Submit Intent
+    // ========================================================================
+
+    describe("submit_intent", () => {
+      const intentId = new BN(1);
+      let intentPDA: PublicKey;
+      let intentBump: number;
+      let intentVaultPDA: PublicKey;
+
+      before(async () => {
+        [intentPDA, intentBump] = deriveIntentPDA(user.publicKey, intentId);
+        [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+      });
+
+      it("should submit an intent with native collateral", async () => {
+        const targetPool = Keypair.generate().publicKey;
+        const collateralAmount = new BN(10_000_000); // 10 USDC
+
+        // Create an encrypted payload (must be >= 40 bytes)
+        const dummyPayload = Buffer.alloc(64);
+        dummyPayload.fill(0xab);
+
+        // User encryption pubkey (32 bytes)
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        try {
+          await program.methods
+            .submitIntent(
+              intentId,
+              { varianceSwap: {} },
+              collateralAmount,
+              dummyPayload,
+              encPubkey
+            )
+            .accounts({
+              owner: user.publicKey,
+              solverConfig: solverConfigPDA,
+              intent: intentPDA,
+              targetPool: targetPool,
+              collateralMint: collateralMint,
+              userCollateral: userCollateralAccount,
+              intentVault: intentVaultPDA,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([user])
+            .rpc();
+
+          // Fetch and verify intent state
+          const intent = await program.account.encryptedIntent.fetch(intentPDA);
+          expect(intent.owner.toString()).to.equal(
+            user.publicKey.toString()
+          );
+          expect(intent.intentId.toNumber()).to.equal(1);
+          expect(intent.collateralAmount.toNumber()).to.equal(
+            collateralAmount.toNumber()
+          );
+          expect(intent.collateralMint.toString()).to.equal(
+            collateralMint.toString()
+          );
+          expect(intent.targetPool.toString()).to.equal(
+            targetPool.toString()
+          );
+          expect(intent.encryptedPayload).to.have.length(64);
+          expect(intent.userEncryptionPubkey).to.have.length(32);
+          expect(JSON.stringify(intent.status)).to.include("pending");
+          expect(intent.createdAt.toNumber()).to.be.greaterThan(0);
+          expect(intent.executedAt.toNumber()).to.equal(0);
+          expect(intent.executedBy).to.be.null;
+          expect(intent.resultPosition).to.be.null;
+
+          // Verify vault received the collateral
+          const vaultAccount =
+            await provider.connection.getTokenAccountBalance(intentVaultPDA);
+          expect(vaultAccount.value.amount).to.equal(
+            collateralAmount.toString()
+          );
+        } catch (e) {
+          console.log("Submit intent error:", e);
+          throw e;
+        }
+      });
+
+      it("should submit a second intent with different ID", async () => {
+        const intentId2 = new BN(2);
+        const [intentPDA2] = deriveIntentPDA(user.publicKey, intentId2);
+        const [intentVaultPDA2] = deriveIntentVaultPDA(intentPDA2);
+
+        const targetPool = Keypair.generate().publicKey;
+        const collateralAmount = new BN(5_000_000); // 5 USDC
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0xcd);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        try {
+          await program.methods
+            .submitIntent(
+              intentId2,
+              { fundingSwap: {} },
+              collateralAmount,
+              dummyPayload,
+              encPubkey
+            )
+            .accounts({
+              owner: user.publicKey,
+              solverConfig: solverConfigPDA,
+              intent: intentPDA2,
+              targetPool: targetPool,
+              collateralMint: collateralMint,
+              userCollateral: userCollateralAccount,
+              intentVault: intentVaultPDA2,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([user])
+            .rpc();
+
+          const intent = await program.account.encryptedIntent.fetch(
+            intentPDA2
+          );
+          expect(intent.intentId.toNumber()).to.equal(2);
+          expect(JSON.stringify(intent.intentType)).to.include("fundingSwap");
+        } catch (e) {
+          console.log("Submit second intent error:", e);
+          throw e;
+        }
+      });
+    });
+
+    // ========================================================================
+    // Cancel Intent
+    // ========================================================================
+
+    describe("cancel_intent", () => {
+      const cancelIntentId = new BN(100);
+      let cancelIntentPDA: PublicKey;
+      let cancelIntentVaultPDA: PublicKey;
+
+      it("should submit and then cancel an intent, returning collateral", async () => {
+        [cancelIntentPDA] = deriveIntentPDA(user.publicKey, cancelIntentId);
+        [cancelIntentVaultPDA] = deriveIntentVaultPDA(cancelIntentPDA);
+
+        const targetPool = Keypair.generate().publicKey;
+        const collateralAmount = new BN(20_000_000); // 20 USDC
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0xef);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        // Record balance before submit
+        const balanceBefore =
+          await provider.connection.getTokenAccountBalance(
+            userCollateralAccount
+          );
+
+        // Submit the intent
+        await program.methods
+          .submitIntent(
+            cancelIntentId,
+            { exoticOption: {} },
+            collateralAmount,
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: cancelIntentPDA,
+            targetPool: targetPool,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: cancelIntentVaultPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        // Verify collateral was taken
+        const balanceAfterSubmit =
+          await provider.connection.getTokenAccountBalance(
+            userCollateralAccount
+          );
+        expect(
+          Number(balanceBefore.value.amount) -
+            Number(balanceAfterSubmit.value.amount)
+        ).to.equal(collateralAmount.toNumber());
+
+        // Cancel the intent
+        try {
+          await program.methods
+            .cancelIntent()
+            .accounts({
+              owner: user.publicKey,
+              intent: cancelIntentPDA,
+              collateralMint: collateralMint,
+              intentVault: cancelIntentVaultPDA,
+              userCollateral: userCollateralAccount,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([user])
+            .rpc();
+
+          // Verify intent status is Cancelled
+          const intent = await program.account.encryptedIntent.fetch(
+            cancelIntentPDA
+          );
+          expect(JSON.stringify(intent.status)).to.include("cancelled");
+
+          // Verify collateral was returned
+          const balanceAfterCancel =
+            await provider.connection.getTokenAccountBalance(
+              userCollateralAccount
+            );
+          expect(balanceAfterCancel.value.amount).to.equal(
+            balanceBefore.value.amount
+          );
+        } catch (e) {
+          console.log("Cancel intent error:", e);
+          throw e;
+        }
+      });
+
+      it("should not allow cancelling an already-cancelled intent", async () => {
+        // The intent from the previous test is already cancelled.
+        // Re-derive vault PDA -- but the vault was closed, so this should fail.
+        try {
+          await program.methods
+            .cancelIntent()
+            .accounts({
+              owner: user.publicKey,
+              intent: cancelIntentPDA,
+              collateralMint: collateralMint,
+              intentVault: cancelIntentVaultPDA,
+              userCollateral: userCollateralAccount,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([user])
+            .rpc();
+
+          expect.fail("Should have thrown - intent already cancelled");
+        } catch (e: any) {
+          // IntentNotCancellable or account-related error
+          expect(e.message).to.not.be.empty;
+        }
+      });
+    });
+
+    // ========================================================================
+    // Error Cases
+    // ========================================================================
+
+    describe("Error cases", () => {
+      it("should reject submit with insufficient collateral", async () => {
+        const intentId = new BN(200);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+        const targetPool = Keypair.generate().publicKey;
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0x11);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        // min_collateral was set to 1_000_000 in initialize_solver
+        const tooLowCollateral = new BN(100); // Way below minimum
+
+        try {
+          await program.methods
+            .submitIntent(
+              intentId,
+              { varianceSwap: {} },
+              tooLowCollateral,
+              dummyPayload,
+              encPubkey
+            )
+            .accounts({
+              owner: user.publicKey,
+              solverConfig: solverConfigPDA,
+              intent: intentPDA,
+              targetPool: targetPool,
+              collateralMint: collateralMint,
+              userCollateral: userCollateralAccount,
+              intentVault: intentVaultPDA,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([user])
+            .rpc();
+
+          expect.fail("Should have thrown - insufficient collateral");
+        } catch (e: any) {
+          expect(e.message).to.include("InvalidCollateralAmount");
+        }
+      });
+
+      it("should reject submit with payload too small", async () => {
+        const intentId = new BN(201);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+        const targetPool = Keypair.generate().publicKey;
+        const tinyPayload = Buffer.alloc(10); // < 40 byte minimum
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        try {
+          await program.methods
+            .submitIntent(
+              intentId,
+              { varianceSwap: {} },
+              new BN(1_000_000),
+              tinyPayload,
+              encPubkey
+            )
+            .accounts({
+              owner: user.publicKey,
+              solverConfig: solverConfigPDA,
+              intent: intentPDA,
+              targetPool: targetPool,
+              collateralMint: collateralMint,
+              userCollateral: userCollateralAccount,
+              intentVault: intentVaultPDA,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([user])
+            .rpc();
+
+          expect.fail("Should have thrown - payload too small");
+        } catch (e: any) {
+          expect(e.message).to.include("InvalidPayloadLength");
+        }
+      });
+
+      it("should reject submit with invalid encryption pubkey length", async () => {
+        const intentId = new BN(202);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+        const targetPool = Keypair.generate().publicKey;
+        const dummyPayload = Buffer.alloc(48);
+        const badEncPubkey = Buffer.alloc(16); // Not 32 bytes
+
+        try {
+          await program.methods
+            .submitIntent(
+              intentId,
+              { varianceSwap: {} },
+              new BN(1_000_000),
+              dummyPayload,
+              badEncPubkey
+            )
+            .accounts({
+              owner: user.publicKey,
+              solverConfig: solverConfigPDA,
+              intent: intentPDA,
+              targetPool: targetPool,
+              collateralMint: collateralMint,
+              userCollateral: userCollateralAccount,
+              intentVault: intentVaultPDA,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([user])
+            .rpc();
+
+          expect.fail("Should have thrown - invalid encryption pubkey");
+        } catch (e: any) {
+          expect(e.message).to.include("InvalidEncryptionPubkey");
+        }
+      });
+
+      it("should reject cancel by non-owner", async () => {
+        // First submit an intent as user
+        const intentId = new BN(300);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+        const targetPool = Keypair.generate().publicKey;
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0x22);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        await program.methods
+          .submitIntent(
+            intentId,
+            { varianceSwap: {} },
+            new BN(2_000_000),
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA,
+            targetPool: targetPool,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: intentVaultPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        // Create token account for solver so account constraints pass for mint
+        const solverTokenAccount = await getOrCreateAssociatedTokenAccount(
+          provider.connection,
+          solver,
+          collateralMint,
+          solver.publicKey
+        );
+
+        // Attempt cancel as solver (not owner) - PDA derivation will fail
+        // because CancelIntent seeds use owner.key() and we pass solver
+        try {
+          await program.methods
+            .cancelIntent()
+            .accounts({
+              owner: solver.publicKey,
+              intent: intentPDA,
+              collateralMint: collateralMint,
+              intentVault: intentVaultPDA,
+              userCollateral: solverTokenAccount.address,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([solver])
+            .rpc();
+
+          expect.fail("Should have thrown - unauthorized owner");
+        } catch (e: any) {
+          // PDA seed constraint or UnauthorizedOwner error
+          expect(e.message).to.not.be.empty;
+        }
+      });
+    });
+  });
 });

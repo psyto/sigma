@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::{
     errors::OracleError,
-    state::{EpochVariance, VarianceTracker},
+    state::EpochVariance,
     FinalizeEpochVariance, InitializeVarianceTracker, StartNewVarianceEpoch,
 };
 

@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
-use crate::{ClaimPayout, ExoticVaultError, state::OptionStatus};
+use crate::{ClaimPayout, state::OptionStatus};
 
 /// SPL Token transfer with PDA signer
 fn spl_token_transfer_signed<'info>(

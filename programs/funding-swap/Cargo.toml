@@ -14,10 +14,11 @@ no-idl = []
 no-log-ix-name = []
 cpi = ["no-entrypoint"]
 default = []
-idl-build = ["anchor-lang/idl-build", "shared-oracle/idl-build"]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "shared-oracle/idl-build"]
 
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+anchor-spl = "0.32.1"
 shared-oracle = { path = "../shared-oracle", features = ["cpi"] }
 spl-token = { version = "7.0", features = ["no-entrypoint"] }
 blake3 = "=1.5.5"

@@ -182,7 +182,7 @@ pub struct PriceSampleBuffer {
     pub option: Pubkey,
 
     /// Price samples
-    #[max_len(1000)]
+    #[max_len(360)]
     pub samples: Vec<PriceSample>,
 
     /// Calculated TWAP

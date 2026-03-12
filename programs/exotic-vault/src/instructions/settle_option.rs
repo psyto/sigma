@@ -12,7 +12,7 @@ pub fn handler(ctx: Context<SettleOption>) -> Result<()> {
 
     // Read price from oracle for spot-settled options
     let price_feed_data = ctx.accounts.price_feed.try_borrow_data()?;
-    let price_feed = PriceFeed::try_deserialize(&mut &price_feed_data[8..])?;
+    let price_feed = PriceFeed::try_deserialize(&mut &price_feed_data[..])?;
     let spot_price = price_feed.last_price;
 
     // Handle based on option type and status
