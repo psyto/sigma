@@ -63,5 +63,13 @@ pub fn handler(ctx: Context<InitializePool>, params: PoolParams) -> Result<()> {
     msg!("Variance cap: {} bps", params.variance_cap_bps);
     msg!("Early exit penalty: {} bps", params.early_exit_penalty_bps);
 
+    emit!(crate::PoolInitialized {
+        pool: ctx.accounts.pool.key(),
+        authority: ctx.accounts.authority.key(),
+        underlying_mint: ctx.accounts.pool.underlying_mint,
+        strike_variance_bps: ctx.accounts.pool.strike_variance_bps,
+        epoch_duration_seconds: ctx.accounts.pool.epoch_duration_seconds,
+    });
+
     Ok(())
 }

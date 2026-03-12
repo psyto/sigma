@@ -66,6 +66,13 @@ pub fn handler(ctx: Context<ClaimPayout>) -> Result<()> {
 
     msg!("Payout claimed: {} (P&L: {})", payout, swap.accumulated_pnl);
 
+    emit!(crate::SwapPayoutClaimed {
+        pool: pool.key(),
+        owner: swap.owner,
+        swap: swap.key(),
+        amount: payout,
+    });
+
     // Swap account will be closed via the close = user constraint
     Ok(())
 }

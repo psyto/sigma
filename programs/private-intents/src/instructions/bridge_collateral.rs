@@ -129,5 +129,14 @@ pub fn handler(
         source_chain,
         ctx.accounts.owner.key()
     );
+
+    emit!(crate::CrossChainIntentSubmitted {
+        owner: ctx.accounts.owner.key(),
+        intent_id,
+        intent_type: intent_type as u8,
+        collateral_amount,
+        source_chain: source_chain as u8,
+    });
+
     Ok(())
 }

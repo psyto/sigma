@@ -185,6 +185,14 @@ pub fn handler<'info>(
         intent.intent_id,
         result_position
     );
+
+    emit!(crate::IntentExecuted {
+        intent_id: intent.intent_id,
+        solver: ctx.accounts.solver.key(),
+        result_position,
+        collateral_amount,
+    });
+
     Ok(())
 }
 

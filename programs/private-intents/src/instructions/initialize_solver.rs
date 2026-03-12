@@ -20,5 +20,13 @@ pub fn handler(
     solver_config.bump = ctx.bumps.solver_config;
 
     msg!("Solver initialized: {}", solver_pubkey);
+
+    emit!(crate::SolverInitialized {
+        authority: ctx.accounts.authority.key(),
+        solver_pubkey,
+        fee_bps,
+        min_collateral,
+    });
+
     Ok(())
 }

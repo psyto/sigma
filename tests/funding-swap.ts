@@ -502,4 +502,49 @@ describe("funding-swap", () => {
       }
     });
   });
+
+  // ============================================================================
+  // Access Control Tests
+  // ============================================================================
+
+  describe("Access Control", () => {
+    it("should reject unauthorized pool updates", async () => {
+      const unauthorizedUser = Keypair.generate();
+
+      try {
+        await program.methods
+          .updatePool(100, null, null)
+          .accounts({
+            authority: unauthorizedUser.publicKey,
+            pool: poolPDA,
+          })
+          .signers([unauthorizedUser])
+          .rpc();
+
+        expect.fail("Should have rejected unauthorized update");
+      } catch (e: any) {
+        expect(e.message).to.include("Unauthorized");
+      }
+    });
+
+    it("should reject unauthorized process_funding_period", async () => {
+      const unauthorizedUser = Keypair.generate();
+
+      try {
+        await program.methods
+          .processFundingPeriod()
+          .accounts({
+            authority: unauthorizedUser.publicKey,
+            pool: poolPDA,
+            fundingFeed: fundingFeedPDA,
+          })
+          .signers([unauthorizedUser])
+          .rpc();
+
+        expect.fail("Should have rejected unauthorized funding period");
+      } catch (e: any) {
+        expect(e.message).to.include("Unauthorized");
+      }
+    });
+  });
 });

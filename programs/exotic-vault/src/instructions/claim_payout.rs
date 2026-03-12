@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
-use crate::{ClaimPayout, state::OptionStatus};
+use crate::{ClaimPayout, OptionPayoutClaimed, state::OptionStatus};
 
 /// SPL Token transfer with PDA signer
 fn spl_token_transfer_signed<'info>(
@@ -62,6 +62,13 @@ pub fn handler(ctx: Context<ClaimPayout>) -> Result<()> {
     }
 
     msg!("Payout claimed: {}", payout);
+
+    emit!(OptionPayoutClaimed {
+        vault: vault.key(),
+        owner: ctx.accounts.user.key(),
+        option: option.key(),
+        amount: payout,
+    });
 
     Ok(())
 }

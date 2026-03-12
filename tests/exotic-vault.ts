@@ -763,4 +763,53 @@ describe("exotic-vault", () => {
       }
     });
   });
+
+  // ============================================================================
+  // Access Control Tests
+  // ============================================================================
+
+  describe("Access Control", () => {
+    it("should reject settle_option by non-owner", async () => {
+      const unauthorizedUser = Keypair.generate();
+      await provider.connection.confirmTransaction(
+        await provider.connection.requestAirdrop(unauthorizedUser.publicKey, 1e9)
+      );
+
+      // Derive the first option PDA (index 0) — the Asian call created earlier
+      const firstOptionIndex = new BN(0);
+
+      const [optionPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("option"),
+          vaultPDA.toBuffer(),
+          authority.publicKey.toBuffer(),
+          firstOptionIndex.toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId
+      );
+
+      const [sampleBufferPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("samples"), optionPDA.toBuffer()],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .settleOption()
+          .accounts({
+            user: unauthorizedUser.publicKey,
+            vault: vaultPDA,
+            option: optionPDA,
+            sampleBuffer: sampleBufferPDA,
+            priceFeed: priceFeedPDA,
+          })
+          .signers([unauthorizedUser])
+          .rpc();
+
+        expect.fail("Should have rejected non-owner settle");
+      } catch (e: any) {
+        expect(e.message).to.include("Unauthorized");
+      }
+    });
+  });
 });

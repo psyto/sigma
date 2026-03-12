@@ -505,3 +505,77 @@ pub struct WithdrawLiquidity<'info> {
     /// CHECK: SPL Token program
     pub token_program: AccountInfo<'info>,
 }
+
+// ============================================================================
+// Events
+// ============================================================================
+
+#[event]
+pub struct VaultInitialized {
+    pub vault: Pubkey,
+    pub authority: Pubkey,
+    pub underlying_mint: Pubkey,
+}
+
+#[event]
+pub struct OptionBought {
+    pub vault: Pubkey,
+    pub owner: Pubkey,
+    pub option: Pubkey,
+    pub option_type: u8,
+    pub strike_price: u64,
+    pub notional: u64,
+    pub premium: u64,
+    pub duration_days: u16,
+}
+
+#[event]
+pub struct BarrierBreached {
+    pub vault: Pubkey,
+    pub option: Pubkey,
+    pub owner: Pubkey,
+    pub barrier_price: u64,
+    pub breach_price: u64,
+    pub is_knockout: bool,
+}
+
+#[event]
+pub struct PriceSampleRecorded {
+    pub option: Pubkey,
+    pub price: u64,
+    pub twap: u64,
+    pub sample_count: u32,
+}
+
+#[event]
+pub struct OptionSettled {
+    pub vault: Pubkey,
+    pub option: Pubkey,
+    pub owner: Pubkey,
+    pub settlement_price: u64,
+    pub payout: u64,
+}
+
+#[event]
+pub struct OptionPayoutClaimed {
+    pub vault: Pubkey,
+    pub owner: Pubkey,
+    pub option: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct LiquidityDeposited {
+    pub vault: Pubkey,
+    pub provider: Pubkey,
+    pub amount: u64,
+    pub shares: u64,
+}
+
+#[event]
+pub struct LiquidityWithdrawn {
+    pub vault: Pubkey,
+    pub provider: Pubkey,
+    pub shares: u64,
+    pub amount: u64,
+}

@@ -327,3 +327,55 @@ pub struct BridgeCollateral<'info> {
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
+
+// ============================================================================
+// Events
+// ============================================================================
+
+#[event]
+pub struct SolverInitialized {
+    pub authority: Pubkey,
+    pub solver_pubkey: Pubkey,
+    pub fee_bps: u16,
+    pub min_collateral: u64,
+}
+
+#[event]
+pub struct IntentSubmitted {
+    pub owner: Pubkey,
+    pub intent_id: u64,
+    pub intent_type: u8,
+    pub collateral_amount: u64,
+    pub target_pool: Pubkey,
+}
+
+#[event]
+pub struct IntentExecuted {
+    pub intent_id: u64,
+    pub solver: Pubkey,
+    pub result_position: Pubkey,
+    pub collateral_amount: u64,
+}
+
+#[event]
+pub struct IntentCancelled {
+    pub owner: Pubkey,
+    pub intent_id: u64,
+    pub collateral_returned: u64,
+}
+
+#[event]
+pub struct IntentClaimed {
+    pub owner: Pubkey,
+    pub intent_id: u64,
+    pub result_position: Pubkey,
+}
+
+#[event]
+pub struct CrossChainIntentSubmitted {
+    pub owner: Pubkey,
+    pub intent_id: u64,
+    pub intent_type: u8,
+    pub collateral_amount: u64,
+    pub source_chain: u8,
+}

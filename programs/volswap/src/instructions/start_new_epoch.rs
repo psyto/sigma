@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use crate::{StartNewEpoch, VolswapError};
 
 pub fn handler(ctx: Context<StartNewEpoch>, strike_variance_bps: u64) -> Result<()> {
+    let pool_key = ctx.accounts.pool.key();
     let pool = &mut ctx.accounts.pool;
     let clock = Clock::get()?;
 
@@ -24,6 +25,12 @@ pub fn handler(ctx: Context<StartNewEpoch>, strike_variance_bps: u64) -> Result<
     msg!("New epoch {} started", pool.current_epoch);
     msg!("Strike variance: {} bps", strike_variance_bps);
     msg!("Ends at: {}", pool.epoch_end_time);
+
+    emit!(crate::NewEpochStarted {
+        pool: pool_key,
+        epoch: pool.current_epoch,
+        strike_variance_bps,
+    });
 
     Ok(())
 }

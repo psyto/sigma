@@ -124,6 +124,13 @@ pub fn deposit(ctx: Context<DepositLiquidity>, amount: u64) -> Result<()> {
     msg!("Total pool liquidity: {}", pool.total_liquidity);
     msg!("Total LP shares: {}", pool.total_lp_shares);
 
+    emit!(crate::LiquidityDeposited {
+        pool: ctx.accounts.pool.key(),
+        provider: ctx.accounts.user.key(),
+        amount,
+        shares: shares_to_mint,
+    });
+
     Ok(())
 }
 
@@ -196,6 +203,13 @@ pub fn withdraw(ctx: Context<WithdrawLiquidity>, shares: u64) -> Result<()> {
     msg!("LP withdrawal: {} shares for {} collateral", shares, withdrawal_amount);
     msg!("Total pool liquidity: {}", pool.total_liquidity);
     msg!("Total LP shares: {}", pool.total_lp_shares);
+
+    emit!(crate::LiquidityWithdrawn {
+        pool: ctx.accounts.pool.key(),
+        provider: ctx.accounts.user.key(),
+        shares,
+        amount: withdrawal_amount,
+    });
 
     Ok(())
 }

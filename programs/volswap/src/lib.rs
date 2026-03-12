@@ -430,3 +430,85 @@ pub struct WithdrawLiquidity<'info> {
     /// CHECK: SPL Token program
     pub token_program: AccountInfo<'info>,
 }
+
+// ============================================================================
+// Events
+// ============================================================================
+
+#[event]
+pub struct PoolInitialized {
+    pub pool: Pubkey,
+    pub authority: Pubkey,
+    pub underlying_mint: Pubkey,
+    pub strike_variance_bps: u64,
+    pub epoch_duration_seconds: u64,
+}
+
+#[event]
+pub struct PositionOpened {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub position: Pubkey,
+    pub is_long: bool,
+    pub notional: u64,
+    pub premium: u64,
+    pub strike_variance_bps: u64,
+    pub epoch: u64,
+}
+
+#[event]
+pub struct EpochSettled {
+    pub pool: Pubkey,
+    pub epoch: u64,
+    pub strike_variance_bps: u64,
+    pub realized_variance_bps: u64,
+}
+
+#[event]
+pub struct PositionSettled {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub position: Pubkey,
+    pub pnl: i64,
+    pub payout: u64,
+}
+
+#[event]
+pub struct PayoutClaimed {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub position: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct NewEpochStarted {
+    pub pool: Pubkey,
+    pub epoch: u64,
+    pub strike_variance_bps: u64,
+}
+
+#[event]
+pub struct PositionClosedEarly {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub position: Pubkey,
+    pub refund: u64,
+    pub penalty: u64,
+}
+
+#[event]
+pub struct LiquidityDeposited {
+    pub pool: Pubkey,
+    pub provider: Pubkey,
+    pub amount: u64,
+    pub shares: u64,
+}
+
+#[event]
+pub struct LiquidityWithdrawn {
+    pub pool: Pubkey,
+    pub provider: Pubkey,
+    pub shares: u64,
+    pub amount: u64,
+}

@@ -64,5 +64,14 @@ pub fn handler(
     intent.bump = ctx.bumps.intent;
 
     msg!("Intent {} submitted by {}", intent_id, ctx.accounts.owner.key());
+
+    emit!(crate::IntentSubmitted {
+        owner: ctx.accounts.owner.key(),
+        intent_id,
+        intent_type: intent_type as u8,
+        collateral_amount,
+        target_pool: ctx.accounts.target_pool.key(),
+    });
+
     Ok(())
 }

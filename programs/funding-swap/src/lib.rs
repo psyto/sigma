@@ -403,3 +403,76 @@ pub struct WithdrawLiquidity<'info> {
     /// CHECK: SPL Token program
     pub token_program: AccountInfo<'info>,
 }
+
+// ============================================================================
+// Events
+// ============================================================================
+
+#[event]
+pub struct PoolInitialized {
+    pub pool: Pubkey,
+    pub authority: Pubkey,
+    pub market_symbol: String,
+    pub fixed_rate_bps: i16,
+    pub funding_period_seconds: u64,
+}
+
+#[event]
+pub struct SwapOpened {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub swap: Pubkey,
+    pub is_receiver: bool,
+    pub notional: u64,
+    pub fixed_rate_bps: i16,
+    pub duration_periods: u16,
+}
+
+#[event]
+pub struct FundingPeriodProcessed {
+    pub pool: Pubkey,
+    pub period: u64,
+    pub funding_rate_bps: i64,
+}
+
+#[event]
+pub struct SwapSettled {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub swap: Pubkey,
+    pub pnl: i64,
+    pub payout: u64,
+}
+
+#[event]
+pub struct SwapPayoutClaimed {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub swap: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct SwapClosedEarly {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub swap: Pubkey,
+    pub refund: u64,
+    pub penalty: u64,
+}
+
+#[event]
+pub struct LiquidityDeposited {
+    pub pool: Pubkey,
+    pub provider: Pubkey,
+    pub amount: u64,
+    pub shares: u64,
+}
+
+#[event]
+pub struct LiquidityWithdrawn {
+    pub pool: Pubkey,
+    pub provider: Pubkey,
+    pub shares: u64,
+    pub amount: u64,
+}

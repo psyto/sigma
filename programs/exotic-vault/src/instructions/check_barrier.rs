@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::{CheckBarrier, ExoticVaultError, state::OptionStatus};
+use crate::{CheckBarrier, ExoticVaultError, BarrierBreached, state::OptionStatus};
 use shared_oracle::state::PriceFeed;
 
 pub fn handler(ctx: Context<CheckBarrier>) -> Result<()> {
@@ -39,6 +39,15 @@ pub fn handler(ctx: Context<CheckBarrier>) -> Result<()> {
             option.status = OptionStatus::KnockedIn;
             msg!("Barrier breached! Option knocked in at price {}", current_price);
         }
+
+        emit!(BarrierBreached {
+            vault: ctx.accounts.vault.key(),
+            option: option.key(),
+            owner: option.owner,
+            barrier_price: option.barrier_price.unwrap_or(0),
+            breach_price: current_price,
+            is_knockout: option.is_knockout(),
+        });
     }
 
     Ok(())

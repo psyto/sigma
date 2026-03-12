@@ -70,5 +70,11 @@ pub fn handler(ctx: Context<ProcessFundingPeriod>) -> Result<()> {
         msg!("Breakeven this period");
     }
 
+    emit!(crate::FundingPeriodProcessed {
+        pool: pool.key(),
+        period: pool.current_period,
+        funding_rate_bps: actual_rate_bps as i64,
+    });
+
     Ok(())
 }

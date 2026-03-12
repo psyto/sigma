@@ -62,5 +62,13 @@ pub fn handler(ctx: Context<InitializePool>, params: PoolParams) -> Result<()> {
     msg!("Initial fixed rate: {} bps", params.initial_fixed_rate_bps);
     msg!("Early exit penalty: {} bps", params.early_exit_penalty_bps);
 
+    emit!(crate::PoolInitialized {
+        pool: pool.key(),
+        authority: ctx.accounts.authority.key(),
+        market_symbol: params.market_symbol,
+        fixed_rate_bps: params.initial_fixed_rate_bps,
+        funding_period_seconds: params.funding_period_seconds,
+    });
+
     Ok(())
 }

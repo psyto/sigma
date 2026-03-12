@@ -113,5 +113,16 @@ pub fn handler(
         pool.strike_variance_bps
     );
 
+    emit!(crate::PositionOpened {
+        pool: ctx.accounts.pool.key(),
+        owner: ctx.accounts.user.key(),
+        position: ctx.accounts.position.key(),
+        is_long,
+        notional,
+        premium,
+        strike_variance_bps: ctx.accounts.pool.strike_variance_bps,
+        epoch: ctx.accounts.pool.current_epoch,
+    });
+
     Ok(())
 }

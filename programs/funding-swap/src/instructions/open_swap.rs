@@ -116,5 +116,15 @@ pub fn handler(
         duration_periods
     );
 
+    emit!(crate::SwapOpened {
+        pool: pool.key(),
+        owner: ctx.accounts.user.key(),
+        swap: swap.key(),
+        is_receiver,
+        notional,
+        fixed_rate_bps: fixed_rate,
+        duration_periods,
+    });
+
     Ok(())
 }

@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
-use crate::{DepositLiquidity, WithdrawLiquidity, ExoticVaultError};
+use crate::{DepositLiquidity, WithdrawLiquidity, ExoticVaultError, LiquidityDeposited, LiquidityWithdrawn};
 
 /// SPL Token transfer instruction
 fn spl_token_transfer<'info>(
@@ -123,6 +123,13 @@ pub fn deposit(ctx: Context<DepositLiquidity>, amount: u64) -> Result<()> {
     msg!("Total vault liquidity: {}", vault.total_liquidity);
     msg!("Total LP shares: {}", vault.total_lp_shares);
 
+    emit!(LiquidityDeposited {
+        vault: vault.key(),
+        provider: ctx.accounts.user.key(),
+        amount,
+        shares: shares_to_mint,
+    });
+
     Ok(())
 }
 
@@ -193,6 +200,13 @@ pub fn withdraw(ctx: Context<WithdrawLiquidity>, shares: u64) -> Result<()> {
     msg!("LP withdrawal: {} shares for {} collateral", shares, withdrawal_amount);
     msg!("Total vault liquidity: {}", vault.total_liquidity);
     msg!("Total LP shares: {}", vault.total_lp_shares);
+
+    emit!(LiquidityWithdrawn {
+        vault: vault.key(),
+        provider: ctx.accounts.user.key(),
+        shares,
+        amount: withdrawal_amount,
+    });
 
     Ok(())
 }

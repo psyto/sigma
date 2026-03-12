@@ -81,6 +81,14 @@ pub fn handler(ctx: Context<CloseSwapEarly>) -> Result<()> {
     msg!("Swap closed early");
     msg!("Collateral: {}, Refund: {}, Penalty: {}", swap.collateral_deposited, refund, penalty);
 
+    emit!(crate::SwapClosedEarly {
+        pool: pool.key(),
+        owner: swap.owner,
+        swap: swap.key(),
+        refund,
+        penalty,
+    });
+
     // Swap account will be closed via the close = user constraint
     Ok(())
 }

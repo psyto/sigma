@@ -26,5 +26,13 @@ pub fn handler(ctx: Context<SettlePosition>) -> Result<()> {
     msg!("P&L: {} ({})", pnl, if position.is_long { "LONG" } else { "SHORT" });
     msg!("Payout: {}", payout);
 
+    emit!(crate::PositionSettled {
+        pool: ctx.accounts.pool.key(),
+        owner: position.owner,
+        position: ctx.accounts.position.key(),
+        pnl,
+        payout,
+    });
+
     Ok(())
 }

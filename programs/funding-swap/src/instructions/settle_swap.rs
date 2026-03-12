@@ -43,5 +43,13 @@ pub fn handler(ctx: Context<SettleSwap>) -> Result<()> {
     msg!("P&L: {} ({})", final_pnl, if swap.is_receiver { "RECEIVER" } else { "PAYER" });
     msg!("Payout: {}", payout);
 
+    emit!(crate::SwapSettled {
+        pool: pool.key(),
+        owner: swap.owner,
+        swap: swap.key(),
+        pnl: final_pnl,
+        payout,
+    });
+
     Ok(())
 }

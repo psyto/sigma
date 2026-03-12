@@ -12,6 +12,12 @@ pub fn handler(ctx: Context<crate::ClaimResult>) -> Result<()> {
         intent.result_position
     );
 
+    emit!(crate::IntentClaimed {
+        owner: ctx.accounts.owner.key(),
+        intent_id: intent.intent_id,
+        result_position: intent.result_position.unwrap_or_default(),
+    });
+
     // Intent account will be closed via the `close = owner` constraint
     // Rent will be returned to owner
     Ok(())

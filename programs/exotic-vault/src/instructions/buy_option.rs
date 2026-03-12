@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke;
-use crate::{BuyOption, ExoticVaultError, state::{OptionType, OptionStatus}};
+use crate::{BuyOption, ExoticVaultError, OptionBought, state::{OptionType, OptionStatus}};
 
 /// SPL Token transfer instruction
 fn spl_token_transfer<'info>(
@@ -121,6 +121,17 @@ pub fn handler(
 
     msg!("Asian option bought: {:?}, strike {}, notional {}, {} days",
         option_type, strike_price, notional, duration_days);
+
+    emit!(OptionBought {
+        vault: vault.key(),
+        owner: option.owner,
+        option: option.key(),
+        option_type: option_type as u8,
+        strike_price,
+        notional,
+        premium,
+        duration_days,
+    });
 
     Ok(())
 }

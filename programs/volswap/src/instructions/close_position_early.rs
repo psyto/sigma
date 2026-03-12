@@ -82,6 +82,14 @@ pub fn handler(ctx: Context<ClosePositionEarly>) -> Result<()> {
     msg!("Position closed early");
     msg!("Collateral: {}, Refund: {}, Penalty: {}", position.collateral_deposited, refund, penalty);
 
+    emit!(crate::PositionClosedEarly {
+        pool: ctx.accounts.pool.key(),
+        owner: ctx.accounts.user.key(),
+        position: ctx.accounts.position.key(),
+        refund,
+        penalty,
+    });
+
     // Position account will be closed via the close = user constraint
     Ok(())
 }

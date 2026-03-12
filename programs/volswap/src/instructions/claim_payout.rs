@@ -68,6 +68,13 @@ pub fn handler(ctx: Context<ClaimPayout>) -> Result<()> {
     msg!("Payout claimed: {} (P&L: {})", payout, position.settlement_pnl);
     msg!("Position closed at: {}", clock.unix_timestamp);
 
+    emit!(crate::PayoutClaimed {
+        pool: ctx.accounts.pool.key(),
+        owner: ctx.accounts.user.key(),
+        position: ctx.accounts.position.key(),
+        amount: payout,
+    });
+
     // Position account will be closed via the close = user constraint
     Ok(())
 }

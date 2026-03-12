@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::{RecordPriceSample, ExoticVaultError, state::{OptionStatus, PriceSample}};
+use crate::{RecordPriceSample, ExoticVaultError, PriceSampleRecorded, state::{OptionStatus, PriceSample}};
 use shared_oracle::state::PriceFeed;
 
 pub fn handler(ctx: Context<RecordPriceSample>) -> Result<()> {
@@ -48,6 +48,13 @@ pub fn handler(ctx: Context<RecordPriceSample>) -> Result<()> {
     sample_buffer.twap = sample_buffer.calculate_twap();
 
     msg!("Price sample recorded: {} (TWAP: {})", price, sample_buffer.twap);
+
+    emit!(PriceSampleRecorded {
+        option: option.key(),
+        price,
+        twap: sample_buffer.twap,
+        sample_count: sample_buffer.samples.len() as u32,
+    });
 
     Ok(())
 }

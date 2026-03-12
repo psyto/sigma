@@ -505,4 +505,49 @@ describe("volswap", () => {
       }
     });
   });
+
+  // ============================================================================
+  // Access Control Tests
+  // ============================================================================
+
+  describe("Access Control", () => {
+    it("should reject unauthorized settle_epoch", async () => {
+      const unauthorizedUser = Keypair.generate();
+
+      try {
+        await program.methods
+          .settleEpoch()
+          .accounts({
+            authority: unauthorizedUser.publicKey,
+            pool: poolPDA,
+            varianceTracker: varianceTrackerPDA,
+          })
+          .signers([unauthorizedUser])
+          .rpc();
+
+        expect.fail("Should have rejected unauthorized settle epoch");
+      } catch (e: any) {
+        expect(e.message).to.include("Unauthorized");
+      }
+    });
+
+    it("should reject unauthorized start_new_epoch", async () => {
+      const unauthorizedUser = Keypair.generate();
+
+      try {
+        await program.methods
+          .startNewEpoch(new BN(4000))
+          .accounts({
+            authority: unauthorizedUser.publicKey,
+            pool: poolPDA,
+          })
+          .signers([unauthorizedUser])
+          .rpc();
+
+        expect.fail("Should have rejected unauthorized start new epoch");
+      } catch (e: any) {
+        expect(e.message).to.include("Unauthorized");
+      }
+    });
+  });
 });

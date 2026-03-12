@@ -47,5 +47,12 @@ pub fn handler(ctx: Context<crate::CancelIntent>) -> Result<()> {
     intent.status = IntentStatus::Cancelled;
 
     msg!("Intent {} cancelled, {} collateral returned", intent.intent_id, vault_balance);
+
+    emit!(crate::IntentCancelled {
+        owner: ctx.accounts.owner.key(),
+        intent_id: intent.intent_id,
+        collateral_returned: vault_balance,
+    });
+
     Ok(())
 }

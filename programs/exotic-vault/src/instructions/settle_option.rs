@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::{SettleOption, ExoticVaultError, state::OptionStatus};
+use crate::{SettleOption, ExoticVaultError, OptionSettled, state::OptionStatus};
 use shared_oracle::state::PriceFeed;
 
 pub fn handler(ctx: Context<SettleOption>) -> Result<()> {
@@ -95,6 +95,14 @@ pub fn handler(ctx: Context<SettleOption>) -> Result<()> {
             return Err(ExoticVaultError::AlreadySettled.into());
         }
     }
+
+    emit!(OptionSettled {
+        vault: vault.key(),
+        option: option.key(),
+        owner: option.owner,
+        settlement_price: option.settlement_price.unwrap_or(0),
+        payout: option.payout_amount,
+    });
 
     Ok(())
 }

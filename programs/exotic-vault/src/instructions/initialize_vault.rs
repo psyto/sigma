@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::{InitializeVault, VaultParams, ExoticVaultError};
+use crate::{InitializeVault, VaultParams, ExoticVaultError, VaultInitialized};
 
 pub fn handler(ctx: Context<InitializeVault>, params: VaultParams) -> Result<()> {
     let vault = &mut ctx.accounts.vault;
@@ -42,6 +42,12 @@ pub fn handler(ctx: Context<InitializeVault>, params: VaultParams) -> Result<()>
     vault.collateral_vault_bump = ctx.bumps.vault_collateral;
 
     msg!("ExoticVault initialized for {:?}", vault.underlying_mint);
+
+    emit!(VaultInitialized {
+        vault: vault.key(),
+        authority: vault.authority,
+        underlying_mint: vault.underlying_mint,
+    });
 
     Ok(())
 }

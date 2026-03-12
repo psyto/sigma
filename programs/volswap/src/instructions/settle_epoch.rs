@@ -35,6 +35,7 @@ fn read_variance_from_tracker(variance_tracker: &AccountInfo) -> Result<u64> {
 }
 
 pub fn handler(ctx: Context<SettleEpoch>) -> Result<()> {
+    let pool_key = ctx.accounts.pool.key();
     let pool = &mut ctx.accounts.pool;
     let clock = Clock::get()?;
 
@@ -64,6 +65,13 @@ pub fn handler(ctx: Context<SettleEpoch>) -> Result<()> {
     } else {
         msg!("Breakeven: no P&L");
     }
+
+    emit!(crate::EpochSettled {
+        pool: pool_key,
+        epoch: pool.current_epoch,
+        strike_variance_bps: pool.strike_variance_bps,
+        realized_variance_bps: pool.realized_variance_bps,
+    });
 
     Ok(())
 }
