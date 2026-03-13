@@ -53,7 +53,7 @@ pub struct FundingPool {
     pub current_period: u64,
 
     /// Last actual funding rate from oracle (bps)
-    pub last_actual_rate_bps: i16,
+    pub last_actual_rate_bps: i64,
 
     // ═══════════════════════════════════════════════════════════════════════
     // Pool Statistics
@@ -112,10 +112,10 @@ impl FundingPool {
     pub fn calculate_period_pnl(
         &self,
         swap: &FundingSwapPosition,
-        actual_rate_bps: i16,
+        actual_rate_bps: i64,
     ) -> i64 {
         let notional = swap.notional as i64;
-        let rate_diff = actual_rate_bps as i64 - swap.fixed_rate_bps as i64;
+        let rate_diff = actual_rate_bps - swap.fixed_rate_bps as i64;
 
         // P&L = Notional × (ActualRate - FixedRate) / 10000
         let pnl = (notional * rate_diff) / 10000;
@@ -258,11 +258,11 @@ impl FundingSwapPosition {
     }
 
     /// Check if swap is profitable at given rate
-    pub fn is_profitable_at(&self, actual_rate_bps: i16) -> bool {
+    pub fn is_profitable_at(&self, actual_rate_bps: i64) -> bool {
         if self.is_receiver {
-            actual_rate_bps > self.fixed_rate_bps
+            actual_rate_bps > self.fixed_rate_bps as i64
         } else {
-            actual_rate_bps < self.fixed_rate_bps
+            actual_rate_bps < (self.fixed_rate_bps as i64)
         }
     }
 }
@@ -350,7 +350,7 @@ impl LiquidityProvider {
 pub struct FundingPeriodRecord {
     pub pool: Pubkey,
     pub period_index: u64,
-    pub actual_rate_bps: i16,
+    pub actual_rate_bps: i64,
     pub fixed_rate_bps: i16,
     pub total_receiver_notional: u64,
     pub total_payer_notional: u64,

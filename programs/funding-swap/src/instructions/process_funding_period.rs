@@ -3,28 +3,37 @@ use crate::{ProcessFundingPeriod, FundingSwapError};
 
 /// Read funding rate from FundingFeed account
 /// Returns rate in basis points (can be negative)
-fn read_funding_rate_from_feed(funding_feed: &AccountInfo) -> Result<i16> {
-    // The FundingFeed account data layout (after 8-byte discriminator):
+fn read_funding_rate_from_feed(funding_feed: &AccountInfo) -> Result<i64> {
+    // The FundingFeed account data layout (Borsh serialization after 8-byte discriminator):
     // - authority: Pubkey (32 bytes)
-    // - market_symbol: String (4 bytes len + 16 bytes max)
-    // - funding_period_seconds: u64 (8 bytes)
-    // - current_rate_bps: i16 (2 bytes) <- This is what we need
+    // - market_symbol: String (4 bytes length prefix + N bytes of UTF-8 data, variable length)
+    // - current_rate_bps: i64 (8 bytes) <- This is what we need
     // ... more fields
 
     let data = funding_feed.try_borrow_data()?;
 
-    // Ensure account has enough data
-    // Skip: discriminator (8) + authority (32) + string (4 + 16) + funding_period (8) = 68
-    require!(data.len() >= 68 + 2, FundingSwapError::OracleReadError);
+    // Minimum size: discriminator (8) + authority (32) + string length prefix (4) + string min 0 bytes + i64 (8)
+    require!(data.len() >= 8 + 32 + 4 + 8, FundingSwapError::OracleReadError);
 
-    let offset = 8 + 32 + 4 + 16 + 8; // = 68
+    // Read the Borsh string length prefix (4-byte little-endian u32) after discriminator + authority
+    let str_len_offset = 8 + 32; // = 40
+    let str_len_bytes: [u8; 4] = data[str_len_offset..str_len_offset + 4]
+        .try_into()
+        .map_err(|_| FundingSwapError::OracleReadError)?;
+    let str_len = u32::from_le_bytes(str_len_bytes) as usize;
 
-    // Read current_rate_bps as i16 (little-endian)
-    let rate_bytes: [u8; 2] = data[offset..offset + 2]
+    // Calculate offset to current_rate_bps: skip discriminator + authority + string (4 + str_len)
+    let offset = 8 + 32 + 4 + str_len;
+
+    // Ensure account has enough data for the i64 field
+    require!(data.len() >= offset + 8, FundingSwapError::OracleReadError);
+
+    // Read current_rate_bps as i64 (little-endian)
+    let rate_bytes: [u8; 8] = data[offset..offset + 8]
         .try_into()
         .map_err(|_| FundingSwapError::OracleReadError)?;
 
-    let rate = i16::from_le_bytes(rate_bytes);
+    let rate = i64::from_le_bytes(rate_bytes);
 
     // Sanity check: rate should be reasonable (-1000 to 1000 bps = -10% to 10%)
     require!(rate >= -1000 && rate <= 1000, FundingSwapError::InvalidRate);
@@ -61,7 +70,7 @@ pub fn handler(ctx: Context<ProcessFundingPeriod>) -> Result<()> {
     msg!("New fixed rate: {} bps (adjustment: {})", new_rate, rate_adjustment);
 
     // Log P&L direction
-    let rate_diff = actual_rate_bps - pool.current_fixed_rate_bps;
+    let rate_diff = actual_rate_bps - pool.current_fixed_rate_bps as i64;
     if rate_diff > 0 {
         msg!("Receivers profit this period");
     } else if rate_diff < 0 {
@@ -73,7 +82,7 @@ pub fn handler(ctx: Context<ProcessFundingPeriod>) -> Result<()> {
     emit!(crate::FundingPeriodProcessed {
         pool: pool.key(),
         period: pool.current_period,
-        funding_rate_bps: actual_rate_bps as i64,
+        funding_rate_bps: actual_rate_bps,
     });
 
     Ok(())

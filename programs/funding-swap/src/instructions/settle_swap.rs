@@ -15,7 +15,7 @@ pub fn handler(ctx: Context<SettleSwap>) -> Result<()> {
     // For simplicity, we use the average rate difference times duration
 
     // Use last actual rate as a proxy for average rate during swap
-    let avg_rate_diff = pool.last_actual_rate_bps as i64 - swap.fixed_rate_bps as i64;
+    let avg_rate_diff = pool.last_actual_rate_bps - swap.fixed_rate_bps as i64;
     let total_pnl = (swap.notional as i128)
         .checked_mul(avg_rate_diff as i128)
         .ok_or(FundingSwapError::Overflow)?
