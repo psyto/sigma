@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount, Mint};
+use shared_oracle;
 
 declare_id!("FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS");
 
@@ -128,15 +129,20 @@ pub struct InitializePool<'info> {
     pub collateral_mint: Account<'info, Mint>,
 
     /// Underlying asset mint (e.g., SOL)
-    /// CHECK: Validated as SPL Token mint
-    pub underlying_mint: AccountInfo<'info>,
+    pub underlying_mint: Account<'info, Mint>,
 
     /// Price feed from shared oracle
     /// CHECK: Validated via seeds in shared-oracle
+    #[account(
+        constraint = price_feed.owner == &shared_oracle::ID @ VolswapError::InvalidOracle
+    )]
     pub price_feed: AccountInfo<'info>,
 
     /// Variance tracker from shared oracle
     /// CHECK: Validated via seeds in shared-oracle
+    #[account(
+        constraint = variance_tracker.owner == &shared_oracle::ID @ VolswapError::InvalidOracle
+    )]
     pub variance_tracker: AccountInfo<'info>,
 
     #[account(
@@ -185,23 +191,23 @@ pub struct OpenPosition<'info> {
     )]
     pub position: Account<'info, VariancePosition>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ VolswapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ VolswapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }
@@ -220,7 +226,8 @@ pub struct SettleEpoch<'info> {
     /// Variance tracker from shared oracle
     /// CHECK: Validated via seeds
     #[account(
-        constraint = variance_tracker.key() == pool.variance_tracker @ VolswapError::InvalidOracle
+        constraint = variance_tracker.key() == pool.variance_tracker @ VolswapError::InvalidOracle,
+        constraint = variance_tracker.owner == &shared_oracle::ID @ VolswapError::InvalidOracle
     )]
     pub variance_tracker: AccountInfo<'info>,
 }
@@ -268,23 +275,23 @@ pub struct ClaimPayout<'info> {
     )]
     pub position: Account<'info, VariancePosition>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ VolswapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ VolswapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -322,23 +329,23 @@ pub struct ClosePositionEarly<'info> {
     )]
     pub position: Account<'info, VariancePosition>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ VolswapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ VolswapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -374,20 +381,21 @@ pub struct DepositLiquidity<'info> {
     )]
     pub lp_account: Account<'info, LiquidityProvider>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ VolswapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ VolswapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }
@@ -412,23 +420,23 @@ pub struct WithdrawLiquidity<'info> {
     )]
     pub lp_account: Account<'info, LiquidityProvider>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ VolswapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ VolswapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 // ============================================================================

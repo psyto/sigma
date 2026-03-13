@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount, Mint};
+use shared_oracle;
 
 declare_id!("6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P");
 
@@ -157,11 +158,14 @@ pub struct InitializeVault<'info> {
 
     pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: Underlying asset mint (e.g., SOL)
-    pub underlying_mint: AccountInfo<'info>,
+    /// Underlying asset mint (e.g., SOL)
+    pub underlying_mint: Account<'info, Mint>,
 
     /// Price feed from shared oracle
     /// CHECK: Validated via seeds in shared-oracle
+    #[account(
+        constraint = price_feed.owner == &shared_oracle::ID @ ExoticVaultError::InvalidOracle
+    )]
     pub price_feed: AccountInfo<'info>,
 
     #[account(
@@ -219,23 +223,23 @@ pub struct BuyOption<'info> {
     )]
     pub sample_buffer: Account<'info, PriceSampleBuffer>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == vault.collateral_mint @ ExoticVaultError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ ExoticVaultError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Vault collateral
     #[account(
         mut,
         seeds = [b"vault_collateral", vault.key().as_ref()],
         bump = vault.collateral_vault_bump
     )]
-    pub vault_collateral: AccountInfo<'info>,
+    pub vault_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }
@@ -262,23 +266,23 @@ pub struct BuyBarrierOption<'info> {
     )]
     pub option: Account<'info, ExoticOption>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == vault.collateral_mint @ ExoticVaultError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ ExoticVaultError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Vault collateral
     #[account(
         mut,
         seeds = [b"vault_collateral", vault.key().as_ref()],
         bump = vault.collateral_vault_bump
     )]
-    pub vault_collateral: AccountInfo<'info>,
+    pub vault_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }
@@ -304,7 +308,8 @@ pub struct CheckBarrier<'info> {
     /// Price feed from shared oracle
     /// CHECK: Validated via vault.price_feed
     #[account(
-        constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle
+        constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle,
+        constraint = price_feed.owner == &shared_oracle::ID @ ExoticVaultError::InvalidOracle
     )]
     pub price_feed: AccountInfo<'info>,
 }
@@ -338,7 +343,8 @@ pub struct RecordPriceSample<'info> {
     /// Price feed from shared oracle
     /// CHECK: Validated via vault.price_feed
     #[account(
-        constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle
+        constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle,
+        constraint = price_feed.owner == &shared_oracle::ID @ ExoticVaultError::InvalidOracle
     )]
     pub price_feed: AccountInfo<'info>,
 }
@@ -371,7 +377,8 @@ pub struct SettleOption<'info> {
     /// Price feed from shared oracle
     /// CHECK: Validated via vault.price_feed
     #[account(
-        constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle
+        constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle,
+        constraint = price_feed.owner == &shared_oracle::ID @ ExoticVaultError::InvalidOracle
     )]
     pub price_feed: AccountInfo<'info>,
 }
@@ -397,23 +404,23 @@ pub struct ClaimPayout<'info> {
     )]
     pub option: Account<'info, ExoticOption>,
 
-    /// CHECK: Vault collateral
     #[account(
         mut,
         seeds = [b"vault_collateral", vault.key().as_ref()],
         bump = vault.collateral_vault_bump
     )]
-    pub vault_collateral: AccountInfo<'info>,
+    pub vault_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == vault.collateral_mint @ ExoticVaultError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ ExoticVaultError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -449,20 +456,21 @@ pub struct DepositLiquidity<'info> {
     )]
     pub lp_account: Account<'info, LiquidityProvider>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == vault.collateral_mint @ ExoticVaultError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ ExoticVaultError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Vault collateral
     #[account(
         mut,
         seeds = [b"vault_collateral", vault.key().as_ref()],
         bump = vault.collateral_vault_bump
     )]
-    pub vault_collateral: AccountInfo<'info>,
+    pub vault_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }
@@ -487,23 +495,23 @@ pub struct WithdrawLiquidity<'info> {
     )]
     pub lp_account: Account<'info, LiquidityProvider>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == vault.collateral_mint @ ExoticVaultError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ ExoticVaultError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Vault collateral
     #[account(
         mut,
         seeds = [b"vault_collateral", vault.key().as_ref()],
         bump = vault.collateral_vault_bump
     )]
-    pub vault_collateral: AccountInfo<'info>,
+    pub vault_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 // ============================================================================

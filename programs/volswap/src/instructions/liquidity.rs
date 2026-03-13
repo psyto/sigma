@@ -93,9 +93,9 @@ pub fn deposit(ctx: Context<DepositLiquidity>, amount: u64) -> Result<()> {
 
     // Transfer collateral from user to vault
     spl_token_transfer(
-        &ctx.accounts.token_program,
-        &ctx.accounts.user_collateral,
-        &ctx.accounts.pool_vault,
+        &ctx.accounts.token_program.to_account_info(),
+        &ctx.accounts.user_collateral.to_account_info(),
+        &ctx.accounts.pool_vault.to_account_info(),
         &ctx.accounts.user.to_account_info(),
         amount,
     )?;
@@ -173,6 +173,15 @@ pub fn withdraw(ctx: Context<WithdrawLiquidity>, shares: u64) -> Result<()> {
 
     require!(withdrawal_amount > 0, VolswapError::InsufficientShares);
 
+    // Update LP account BEFORE transfer (reentrancy protection)
+    lp_account.shares = lp_account.shares.checked_sub(shares).ok_or(VolswapError::Overflow)?;
+    lp_account.total_withdrawn = lp_account.total_withdrawn.checked_add(withdrawal_amount).ok_or(VolswapError::Overflow)?;
+    lp_account.last_interaction = clock.unix_timestamp;
+
+    // Update pool state BEFORE transfer (reentrancy protection)
+    pool.total_lp_shares = pool.total_lp_shares.checked_sub(shares).ok_or(VolswapError::Overflow)?;
+    pool.total_liquidity = pool.total_liquidity.checked_sub(withdrawal_amount).ok_or(VolswapError::Overflow)?;
+
     // Transfer collateral from vault to user
     let pool_key = pool.key();
     let seeds = &[
@@ -183,22 +192,13 @@ pub fn withdraw(ctx: Context<WithdrawLiquidity>, shares: u64) -> Result<()> {
     let signer_seeds = &[&seeds[..]];
 
     spl_token_transfer_signed(
-        &ctx.accounts.token_program,
-        &ctx.accounts.pool_vault,
-        &ctx.accounts.user_collateral,
-        &ctx.accounts.pool_vault,
+        &ctx.accounts.token_program.to_account_info(),
+        &ctx.accounts.pool_vault.to_account_info(),
+        &ctx.accounts.user_collateral.to_account_info(),
+        &ctx.accounts.pool_vault.to_account_info(),
         withdrawal_amount,
         signer_seeds,
     )?;
-
-    // Update LP account
-    lp_account.shares = lp_account.shares.checked_sub(shares).ok_or(VolswapError::Overflow)?;
-    lp_account.total_withdrawn = lp_account.total_withdrawn.checked_add(withdrawal_amount).ok_or(VolswapError::Overflow)?;
-    lp_account.last_interaction = clock.unix_timestamp;
-
-    // Update pool state
-    pool.total_lp_shares = pool.total_lp_shares.checked_sub(shares).ok_or(VolswapError::Overflow)?;
-    pool.total_liquidity = pool.total_liquidity.checked_sub(withdrawal_amount).ok_or(VolswapError::Overflow)?;
 
     msg!("LP withdrawal: {} shares for {} collateral", shares, withdrawal_amount);
     msg!("Total pool liquidity: {}", pool.total_liquidity);

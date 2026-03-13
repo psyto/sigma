@@ -21,7 +21,7 @@ describe("exotic-vault", () => {
 
   const authority = provider.wallet;
   let collateralMint: PublicKey;
-  let underlyingMint: Keypair;
+  let underlyingMint: PublicKey;
   let priceFeedPDA: PublicKey;
   let vaultPDA: PublicKey;
   let vaultCollateralPDA: PublicKey;
@@ -38,11 +38,17 @@ describe("exotic-vault", () => {
     );
 
     // Create underlying asset mint (SOL-like)
-    underlyingMint = Keypair.generate();
+    underlyingMint = await createMint(
+      provider.connection,
+      (provider.wallet as any).payer,
+      authority.publicKey,
+      null,
+      9 // 9 decimals like SOL
+    );
 
     // Initialize price feed in oracle program
     [priceFeedPDA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("price_feed"), underlyingMint.publicKey.toBuffer()],
+      [Buffer.from("price_feed"), underlyingMint.toBuffer()],
       oracleProgram.programId
     );
 
@@ -56,7 +62,7 @@ describe("exotic-vault", () => {
         .initializePriceFeed("SOL", new BN(1), 360)
         .accounts({
           authority: authority.publicKey,
-          assetMint: underlyingMint.publicKey,
+          assetMint: underlyingMint,
           priceFeed: priceFeedPDA,
           sampleBuffer: sampleBufferPDA,
           systemProgram: SystemProgram.programId,
@@ -102,7 +108,7 @@ describe("exotic-vault", () => {
   describe("Vault Initialization", () => {
     it("should initialize an exotic options vault", async () => {
       [vaultPDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("exotic_vault"), underlyingMint.publicKey.toBuffer()],
+        [Buffer.from("exotic_vault"), underlyingMint.toBuffer()],
         program.programId
       );
 
@@ -126,7 +132,7 @@ describe("exotic-vault", () => {
           .accounts({
             authority: authority.publicKey,
             collateralMint: collateralMint,
-            underlyingMint: underlyingMint.publicKey,
+            underlyingMint: underlyingMint,
             priceFeed: priceFeedPDA,
             vault: vaultPDA,
             vaultCollateral: vaultCollateralPDA,

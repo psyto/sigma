@@ -56,10 +56,10 @@ pub fn handler(ctx: Context<ClaimPayout>) -> Result<()> {
         let signer_seeds = &[&seeds[..]];
 
         spl_token_transfer_signed(
-            &ctx.accounts.token_program,
-            &ctx.accounts.pool_vault,
-            &ctx.accounts.user_collateral,
-            &ctx.accounts.pool_vault,
+            &ctx.accounts.token_program.to_account_info(),
+            &ctx.accounts.pool_vault.to_account_info(),
+            &ctx.accounts.user_collateral.to_account_info(),
+            &ctx.accounts.pool_vault.to_account_info(),
             payout,
             signer_seeds,
         )?;

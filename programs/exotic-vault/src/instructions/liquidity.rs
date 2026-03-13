@@ -92,9 +92,9 @@ pub fn deposit(ctx: Context<DepositLiquidity>, amount: u64) -> Result<()> {
 
     // Transfer collateral from user to vault
     spl_token_transfer(
-        &ctx.accounts.token_program,
-        &ctx.accounts.user_collateral,
-        &ctx.accounts.vault_collateral,
+        &ctx.accounts.token_program.to_account_info(),
+        &ctx.accounts.user_collateral.to_account_info(),
+        &ctx.accounts.vault_collateral.to_account_info(),
         &ctx.accounts.user.to_account_info(),
         amount,
     )?;
@@ -170,6 +170,15 @@ pub fn withdraw(ctx: Context<WithdrawLiquidity>, shares: u64) -> Result<()> {
 
     require!(withdrawal_amount > 0, ExoticVaultError::InsufficientShares);
 
+    // Update LP account BEFORE transfer (reentrancy protection)
+    lp_account.shares = lp_account.shares.checked_sub(shares).ok_or(ExoticVaultError::Overflow)?;
+    lp_account.total_withdrawn = lp_account.total_withdrawn.checked_add(withdrawal_amount).ok_or(ExoticVaultError::Overflow)?;
+    lp_account.last_interaction = clock.unix_timestamp;
+
+    // Update vault state BEFORE transfer (reentrancy protection)
+    vault.total_lp_shares = vault.total_lp_shares.checked_sub(shares).ok_or(ExoticVaultError::Overflow)?;
+    vault.total_liquidity = vault.total_liquidity.checked_sub(withdrawal_amount).ok_or(ExoticVaultError::Overflow)?;
+
     // Transfer collateral from vault to user
     let vault_key = vault.key();
     let seeds = &[
@@ -180,22 +189,13 @@ pub fn withdraw(ctx: Context<WithdrawLiquidity>, shares: u64) -> Result<()> {
     let signer_seeds = &[&seeds[..]];
 
     spl_token_transfer_signed(
-        &ctx.accounts.token_program,
-        &ctx.accounts.vault_collateral,
-        &ctx.accounts.user_collateral,
-        &ctx.accounts.vault_collateral,
+        &ctx.accounts.token_program.to_account_info(),
+        &ctx.accounts.vault_collateral.to_account_info(),
+        &ctx.accounts.user_collateral.to_account_info(),
+        &ctx.accounts.vault_collateral.to_account_info(),
         withdrawal_amount,
         signer_seeds,
     )?;
-
-    // Update LP account
-    lp_account.shares = lp_account.shares.checked_sub(shares).ok_or(ExoticVaultError::Overflow)?;
-    lp_account.total_withdrawn = lp_account.total_withdrawn.checked_add(withdrawal_amount).ok_or(ExoticVaultError::Overflow)?;
-    lp_account.last_interaction = clock.unix_timestamp;
-
-    // Update vault state
-    vault.total_lp_shares = vault.total_lp_shares.checked_sub(shares).ok_or(ExoticVaultError::Overflow)?;
-    vault.total_liquidity = vault.total_liquidity.checked_sub(withdrawal_amount).ok_or(ExoticVaultError::Overflow)?;
 
     msg!("LP withdrawal: {} shares for {} collateral", shares, withdrawal_amount);
     msg!("Total vault liquidity: {}", vault.total_liquidity);

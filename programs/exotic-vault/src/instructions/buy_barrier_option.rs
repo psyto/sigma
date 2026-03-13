@@ -92,9 +92,9 @@ pub fn handler(
 
     // Transfer premium + fee
     spl_token_transfer(
-        &ctx.accounts.token_program,
-        &ctx.accounts.user_collateral,
-        &ctx.accounts.vault_collateral,
+        &ctx.accounts.token_program.to_account_info(),
+        &ctx.accounts.user_collateral.to_account_info(),
+        &ctx.accounts.vault_collateral.to_account_info(),
         &ctx.accounts.user.to_account_info(),
         total_cost,
     )?;

@@ -173,23 +173,23 @@ pub struct OpenSwap<'info> {
     )]
     pub swap: Account<'info, FundingSwapPosition>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ FundingSwapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ FundingSwapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }
@@ -253,23 +253,23 @@ pub struct ClaimPayout<'info> {
     )]
     pub swap: Account<'info, FundingSwapPosition>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ FundingSwapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ FundingSwapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -295,23 +295,23 @@ pub struct CloseSwapEarly<'info> {
     )]
     pub swap: Account<'info, FundingSwapPosition>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ FundingSwapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ FundingSwapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -347,20 +347,21 @@ pub struct DepositLiquidity<'info> {
     )]
     pub lp_account: Account<'info, LiquidityProvider>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ FundingSwapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ FundingSwapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }
@@ -385,23 +386,23 @@ pub struct WithdrawLiquidity<'info> {
     )]
     pub lp_account: Account<'info, LiquidityProvider>,
 
-    /// CHECK: User's collateral token account
-    #[account(mut)]
-    pub user_collateral: AccountInfo<'info>,
+    #[account(
+        mut,
+        constraint = user_collateral.mint == pool.collateral_mint @ FundingSwapError::InvalidMint,
+        constraint = user_collateral.owner == user.key() @ FundingSwapError::Unauthorized
+    )]
+    pub user_collateral: Account<'info, TokenAccount>,
 
-    /// CHECK: Pool vault for collateral
     #[account(
         mut,
         seeds = [b"pool_vault", pool.key().as_ref()],
         bump = pool.vault_bump
     )]
-    pub pool_vault: AccountInfo<'info>,
+    pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: Collateral mint
-    pub collateral_mint: AccountInfo<'info>,
+    pub collateral_mint: Account<'info, Mint>,
 
-    /// CHECK: SPL Token program
-    pub token_program: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 // ============================================================================

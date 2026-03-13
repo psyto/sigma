@@ -152,9 +152,9 @@ describe('Solver', () => {
         isLong: true,
       };
 
-      // Simulate execution with 0.5% slippage
-      const expectedPremium = new BN(49_000_000);
-      const actualPremium = new BN(49_500_000); // 0.5% worse
+      // Simulate execution with ~0.5% slippage
+      const expectedPremium = new BN(50_000_000);
+      const actualPremium = new BN(50_250_000); // 0.5% worse
 
       const slippageAmount = actualPremium.sub(expectedPremium);
       const slippageBps = slippageAmount.mul(new BN(10000)).div(expectedPremium);

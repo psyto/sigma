@@ -22,7 +22,7 @@ describe("volswap", () => {
 
   const authority = provider.wallet;
   let collateralMint: PublicKey;
-  let underlyingMint: Keypair;
+  let underlyingMint: PublicKey;
   let priceFeedPDA: PublicKey;
   let varianceTrackerPDA: PublicKey;
   let poolPDA: PublicKey;
@@ -40,11 +40,17 @@ describe("volswap", () => {
     );
 
     // Create underlying asset mint (SOL-like)
-    underlyingMint = Keypair.generate();
+    underlyingMint = await createMint(
+      provider.connection,
+      (provider.wallet as any).payer,
+      authority.publicKey,
+      null,
+      9 // 9 decimals like SOL
+    );
 
     // Initialize price feed in oracle program
     [priceFeedPDA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("price_feed"), underlyingMint.publicKey.toBuffer()],
+      [Buffer.from("price_feed"), underlyingMint.toBuffer()],
       oracleProgram.programId
     );
 
@@ -58,7 +64,7 @@ describe("volswap", () => {
         .initializePriceFeed("SOL", new BN(1), 360)
         .accounts({
           authority: authority.publicKey,
-          assetMint: underlyingMint.publicKey,
+          assetMint: underlyingMint,
           priceFeed: priceFeedPDA,
           sampleBuffer: sampleBufferPDA,
           systemProgram: SystemProgram.programId,
@@ -125,7 +131,7 @@ describe("volswap", () => {
       };
 
       [poolPDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("variance_pool"), underlyingMint.publicKey.toBuffer()],
+        [Buffer.from("variance_pool"), underlyingMint.toBuffer()],
         program.programId
       );
 
@@ -140,7 +146,7 @@ describe("volswap", () => {
           .accounts({
             authority: authority.publicKey,
             collateralMint: collateralMint,
-            underlyingMint: underlyingMint.publicKey,
+            underlyingMint: underlyingMint,
             priceFeed: priceFeedPDA,
             varianceTracker: varianceTrackerPDA,
             pool: poolPDA,
