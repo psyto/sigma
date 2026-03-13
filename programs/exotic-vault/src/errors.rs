@@ -82,4 +82,7 @@ pub enum ExoticVaultError {
 
     #[msg("Insufficient samples for TWAP calculation")]
     InsufficientSamples,
+
+    #[msg("Invalid token mint")]
+    InvalidMint,
 }

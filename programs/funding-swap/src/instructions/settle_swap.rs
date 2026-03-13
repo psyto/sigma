@@ -16,7 +16,13 @@ pub fn handler(ctx: Context<SettleSwap>) -> Result<()> {
 
     // Use last actual rate as a proxy for average rate during swap
     let avg_rate_diff = pool.last_actual_rate_bps as i64 - swap.fixed_rate_bps as i64;
-    let total_pnl = (swap.notional as i64 * avg_rate_diff * swap.duration_periods as i64) / 10000;
+    let total_pnl = (swap.notional as i128)
+        .checked_mul(avg_rate_diff as i128)
+        .ok_or(FundingSwapError::Overflow)?
+        .checked_mul(swap.duration_periods as i128)
+        .ok_or(FundingSwapError::Overflow)?
+        .checked_div(10000)
+        .ok_or(FundingSwapError::DivisionByZero)? as i64;
 
     let final_pnl = if swap.is_receiver {
         total_pnl  // Receivers profit when actual > fixed

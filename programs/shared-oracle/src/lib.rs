@@ -847,6 +847,9 @@ pub struct InitializeVarianceTracker<'info> {
 
 #[derive(Accounts)]
 pub struct FinalizeEpochVariance<'info> {
+    #[account(
+        constraint = authority.key() == variance_tracker.authority @ OracleError::Unauthorized
+    )]
     pub authority: Signer<'info>,
 
     pub price_feed: Account<'info, PriceFeed>,
@@ -868,6 +871,9 @@ pub struct FinalizeEpochVariance<'info> {
 
 #[derive(Accounts)]
 pub struct StartNewVarianceEpoch<'info> {
+    #[account(
+        constraint = authority.key() == variance_tracker.authority @ OracleError::Unauthorized
+    )]
     pub authority: Signer<'info>,
 
     pub price_feed: Account<'info, PriceFeed>,
@@ -875,7 +881,8 @@ pub struct StartNewVarianceEpoch<'info> {
     #[account(
         mut,
         seeds = [b"variance_tracker", price_feed.key().as_ref()],
-        bump = variance_tracker.bump
+        bump = variance_tracker.bump,
+        constraint = variance_tracker.price_feed == price_feed.key() @ OracleError::InvalidPriceFeed
     )]
     pub variance_tracker: Account<'info, VarianceTracker>,
 }
@@ -1059,7 +1066,8 @@ pub struct CancelListing<'info> {
 
     #[account(
         mut,
-        constraint = position_token.is_listed @ OracleError::NotListed
+        constraint = position_token.is_listed @ OracleError::NotListed,
+        constraint = position_token.protocol == secondary_market.protocol @ OracleError::ProtocolMismatch
     )]
     pub position_token: Account<'info, PositionToken>,
 

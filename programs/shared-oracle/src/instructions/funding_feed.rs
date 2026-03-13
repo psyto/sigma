@@ -16,7 +16,7 @@ pub fn initialize_funding_feed(
     let clock = Clock::get()?;
 
     // Validate inputs
-    require!(market_symbol.len() <= 16, OracleError::SymbolTooLong);
+    require!(!market_symbol.is_empty() && market_symbol.len() <= 16, OracleError::SymbolTooLong);
     require!(
         funding_interval_seconds >= 3600, // Minimum 1 hour
         OracleError::FundingIntervalTooShort
@@ -53,11 +53,13 @@ pub fn record_funding_rate(ctx: Context<RecordFundingRate>, rate_bps: i64) -> Re
     // Update current rate
     feed.current_rate_bps = rate_bps;
     feed.last_update = clock.unix_timestamp;
-    feed.total_periods += 1;
+    feed.total_periods = feed.total_periods.checked_add(1).ok_or(OracleError::MathOverflow)?;
 
     // Update cumulative funding (scaled by 1e9 for precision)
     // Cumulative = sum of all rates
-    feed.cumulative_funding += (rate_bps as i128) * 1_000_000;
+    feed.cumulative_funding = feed.cumulative_funding
+        .checked_add((rate_bps as i128).checked_mul(1_000_000).ok_or(OracleError::MathOverflow)?)
+        .ok_or(OracleError::MathOverflow)?;
 
     // Add to history
     feed.rate_history.push(FundingRateSample {

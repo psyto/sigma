@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use crate::error::PrivateIntentError;
 
 pub fn handler(
     ctx: Context<crate::InitializeSolver>,
@@ -8,6 +9,11 @@ pub fn handler(
     max_payload_size: u16,
 ) -> Result<()> {
     let solver_config = &mut ctx.accounts.solver_config;
+
+    // Validate parameters
+    require!(fee_bps <= 1000, PrivateIntentError::InvalidFeeRate); // Max 10% solver fee
+    require!(min_collateral > 0, PrivateIntentError::InvalidCollateralAmount);
+    require!(max_payload_size >= 40, PrivateIntentError::InvalidPayloadLength); // Must allow minimum payload
 
     solver_config.authority = ctx.accounts.authority.key();
     solver_config.solver_pubkey = solver_pubkey;

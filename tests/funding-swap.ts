@@ -547,4 +547,323 @@ describe("funding-swap", () => {
       }
     });
   });
+
+  // ============================================================================
+  // Liquidation & Margin Edge Cases
+  // ============================================================================
+
+  describe("Liquidation & Margin Edge Cases", () => {
+    /**
+     * Helper: open a receiver swap and return its PDA.
+     * Uses the current pool.totalSwaps as the swap index.
+     */
+    async function openReceiverSwap(
+      notional: BN,
+      durationPeriods: number,
+      maxFixedRateBps: number,
+      signer?: Keypair,
+      signerCollateral?: PublicKey,
+    ): Promise<PublicKey> {
+      const pool = await program.account.fundingPool.fetch(poolPDA);
+      const swapIndex = pool.totalSwaps;
+      const user = signer ? signer.publicKey : authority.publicKey;
+
+      const [swapPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("swap"),
+          poolPDA.toBuffer(),
+          user.toBuffer(),
+          swapIndex.toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId
+      );
+
+      const accounts = {
+        user,
+        pool: poolPDA,
+        swap: swapPDA,
+        userCollateral: signerCollateral ?? userCollateralAccount,
+        poolVault: poolVaultPDA,
+        collateralMint: collateralMint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      };
+
+      const tx = program.methods
+        .openReceiver(notional, durationPeriods, maxFixedRateBps)
+        .accounts(accounts);
+
+      if (signer) {
+        await tx.signers([signer]).rpc();
+      } else {
+        await tx.rpc();
+      }
+
+      return swapPDA;
+    }
+
+    /**
+     * Helper: record a funding rate in the oracle and process a funding period.
+     */
+    async function recordAndProcessFunding(rateBps: number): Promise<void> {
+      await oracleProgram.methods
+        .recordFundingRate(new BN(rateBps))
+        .accounts({
+          authority: authority.publicKey,
+          fundingFeed: fundingFeedPDA,
+        })
+        .rpc();
+
+      // Wait briefly so the 1-second funding period elapses
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      await program.methods
+        .processFundingPeriod()
+        .accounts({
+          authority: authority.publicKey,
+          pool: poolPDA,
+          fundingFeed: fundingFeedPDA,
+        })
+        .rpc();
+    }
+
+    it("should deplete margin on under-margin position after adverse funding", async () => {
+      // Open a receiver swap with minimum duration (short swap = small margin).
+      // Receiver pays fixed, receives floating. If floating << fixed, receiver loses.
+      const notional = new BN(1_000_000_000); // 1B lamports
+      const durationPeriods = 2;
+      const maxFixedRateBps = 200;
+
+      const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionBefore.status).to.deep.equal({ active: {} });
+      const collateralBefore = positionBefore.collateralDeposited.toNumber();
+      expect(collateralBefore).to.be.greaterThan(0);
+
+      // Process funding periods with a very negative rate (adverse for receiver).
+      // Receiver profits when actual > fixed; a very negative actual rate means big loss.
+      await recordAndProcessFunding(-200);
+      await recordAndProcessFunding(-200);
+
+      // The swap should now have ended (2 periods elapsed).
+      // Settle and verify that loss ate into margin.
+      const pool = await program.account.fundingPool.fetch(poolPDA);
+      const positionMid = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionMid.status).to.deep.equal({ active: {} });
+
+      // Settle the swap
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionAfter.status).to.deep.equal({ settled: {} });
+
+      // The accumulated PnL should be negative (receiver lost money with negative rates)
+      expect(positionAfter.accumulatedPnl.toNumber()).to.be.lessThan(0);
+
+      // Payout should be less than collateral deposited
+      expect(positionAfter.payoutAmount.toNumber()).to.be.lessThan(collateralBefore);
+    });
+
+    it("should settle and claim after processing all funding periods", async () => {
+      // Open a receiver swap and process all periods, then settle and claim
+      const notional = new BN(5_000_000_000);
+      const durationPeriods = 3;
+      const maxFixedRateBps = 200;
+
+      const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionBefore.collateralDeposited.toNumber()).to.be.greaterThan(0);
+
+      // Record funding rates and process 3 periods
+      await recordAndProcessFunding(300);
+      await recordAndProcessFunding(300);
+      await recordAndProcessFunding(300);
+
+      // Settle the completed swap
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionAfter.status).to.deep.equal({ settled: {} });
+      expect(positionAfter.periodsSettled).to.equal(durationPeriods);
+
+      // Claim the payout
+      await program.methods
+        .claimPayout()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+          poolVault: poolVaultPDA,
+          userCollateral: userCollateralAccount,
+          collateralMint: collateralMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      // The swap account should be closed after claim
+      try {
+        await program.account.fundingSwapPosition.fetch(swapPDA);
+        expect.fail("Position should be closed after claim");
+      } catch (e: any) {
+        expect(e.message).to.include("Account does not exist");
+      }
+    });
+
+    it("should close swap with loss after unfavorable funding", async () => {
+      // Open a receiver swap. Then feed unfavorable (negative) rates.
+      const notional = new BN(5_000_000_000);
+      const durationPeriods = 3;
+      const maxFixedRateBps = 200;
+
+      const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
+      const collateralBefore = positionBefore.collateralDeposited.toNumber();
+
+      // Record unfavorable funding rates (low/negative => receiver loses)
+      await recordAndProcessFunding(-100);
+      await recordAndProcessFunding(-100);
+      await recordAndProcessFunding(-100);
+
+      // Settle the completed swap
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionAfter.status).to.deep.equal({ settled: {} });
+
+      // PnL should be negative (receiver loses when actual < fixed)
+      expect(positionAfter.accumulatedPnl.toNumber()).to.be.lessThan(0);
+
+      // Payout should be less than collateral deposited
+      expect(positionAfter.payoutAmount.toNumber()).to.be.lessThan(collateralBefore);
+
+      // Claim reduced payout
+      await program.methods
+        .claimPayout()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+          poolVault: poolVaultPDA,
+          userCollateral: userCollateralAccount,
+          collateralMint: collateralMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      // The swap account should be closed after claim
+      try {
+        await program.account.fundingSwapPosition.fetch(swapPDA);
+        expect.fail("Position should be closed after claim");
+      } catch (e: any) {
+        expect(e.message).to.include("Account does not exist");
+      }
+    });
+
+    it("should process multiple funding periods and verify cumulative accrual", async () => {
+      const notional = new BN(10_000_000_000);
+      const durationPeriods = 5;
+      const maxFixedRateBps = 200;
+
+      const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      const poolBefore = await program.account.fundingPool.fetch(poolPDA);
+      const periodsBefore = poolBefore.totalPeriodsProcessed.toNumber();
+
+      // Process 5 funding periods sequentially with varying rates
+      const rates = [80, -50, 120, -30, 200];
+      for (const rate of rates) {
+        await recordAndProcessFunding(rate);
+      }
+
+      const poolAfter = await program.account.fundingPool.fetch(poolPDA);
+      const periodsAfter = poolAfter.totalPeriodsProcessed.toNumber();
+
+      // Verify all 5 periods were processed
+      expect(periodsAfter - periodsBefore).to.equal(5);
+
+      // The current_period should have incremented by 5
+      expect(poolAfter.currentPeriod.toNumber()).to.equal(
+        poolBefore.currentPeriod.toNumber() + 5
+      );
+
+      // Settle the swap after all periods are processed
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const position = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(position.status).to.deep.equal({ settled: {} });
+      expect(position.periodsSettled).to.equal(durationPeriods);
+    });
+
+    it("should reject closing an already-settled swap", async () => {
+      // Open a short-duration receiver swap
+      const notional = new BN(1_000_000_000);
+      const durationPeriods = 1;
+      const maxFixedRateBps = 300;
+
+      const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      // Process enough funding periods so the swap expires
+      await recordAndProcessFunding(50);
+
+      // Settle the swap the first time
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const position = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(position.status).to.deep.equal({ settled: {} });
+
+      // Attempt to settle again -- should fail with SwapAlreadySettled
+      try {
+        await program.methods
+          .settleSwap()
+          .accounts({
+            user: authority.publicKey,
+            pool: poolPDA,
+            swap: swapPDA,
+          })
+          .rpc();
+
+        expect.fail("Should have rejected settling an already-settled swap");
+      } catch (e: any) {
+        expect(e.message).to.include("SwapAlreadySettled");
+      }
+    });
+  });
 });

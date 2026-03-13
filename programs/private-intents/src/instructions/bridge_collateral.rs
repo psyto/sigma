@@ -21,6 +21,7 @@ pub fn handler(
 
     // Validate inputs
     require!(solver_config.is_active, PrivateIntentError::SolverNotActive);
+    require!(collateral_amount > 0, PrivateIntentError::InvalidCollateralAmount);
     require!(
         collateral_amount >= solver_config.min_collateral,
         PrivateIntentError::InvalidCollateralAmount

@@ -67,4 +67,7 @@ pub enum PrivateIntentError {
 
     #[msg("Invalid remaining accounts for CPI dispatch")]
     InvalidRemainingAccounts,
+
+    #[msg("Invalid fee rate")]
+    InvalidFeeRate,
 }

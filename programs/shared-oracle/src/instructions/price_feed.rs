@@ -20,7 +20,7 @@ pub fn initialize_price_feed(
     let clock = Clock::get()?;
 
     // Validate inputs
-    require!(asset_symbol.len() <= 16, OracleError::SymbolTooLong);
+    require!(!asset_symbol.is_empty() && asset_symbol.len() <= 16, OracleError::SymbolTooLong);
     require!(
         sample_interval_seconds >= 1,
         OracleError::IntervalTooShort

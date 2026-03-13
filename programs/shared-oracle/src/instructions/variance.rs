@@ -121,7 +121,7 @@ pub fn start_new_variance_epoch(ctx: Context<StartNewVarianceEpoch>) -> Result<(
     require!(tracker.is_epoch_finalized, OracleError::EpochNotFinalized);
 
     // Increment epoch
-    tracker.current_epoch += 1;
+    tracker.current_epoch = tracker.current_epoch.checked_add(1).ok_or(OracleError::MathOverflow)?;
     tracker.epoch_start_time = clock.unix_timestamp;
     tracker.current_epoch_variance = 0;
     tracker.current_epoch_samples = 0;

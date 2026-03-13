@@ -63,9 +63,11 @@ pub fn handler<'info>(
     // Cap slippage to 50% (5000 bps) to prevent abuse
     require!(slippage_bps <= 5000, PrivateIntentError::SlippageExceeded);
 
-    let intent = &ctx.accounts.intent;
+    // Mark intent as executing BEFORE any CPI calls (reentrancy protection)
+    let intent = &mut ctx.accounts.intent;
+    intent.status = IntentStatus::Executing;
 
-    // Store values needed for PDA signer seeds before mutable borrow
+    // Store values needed for PDA signer seeds before further operations
     let owner_key = intent.owner;
     let intent_id_bytes = intent.intent_id.to_le_bytes();
     let bump = intent.bump;

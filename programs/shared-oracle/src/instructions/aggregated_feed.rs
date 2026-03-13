@@ -16,7 +16,7 @@ pub fn initialize_aggregated_feed(
     let clock = Clock::get()?;
 
     // Validate inputs
-    require!(asset_symbol.len() <= 16, OracleError::SymbolTooLong);
+    require!(!asset_symbol.is_empty() && asset_symbol.len() <= 16, OracleError::SymbolTooLong);
 
     // Initialize aggregated feed
     feed.authority = ctx.accounts.authority.key();

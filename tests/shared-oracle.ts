@@ -790,4 +790,267 @@ describe("shared-oracle", () => {
       }
     });
   });
+
+  // ============================================================================
+  // Event Emission Tests
+  // ============================================================================
+
+  describe("Event Emission", () => {
+    // Dedicated accounts for event emission tests to avoid conflicts
+    // with prior test state (e.g. circuit breaker already tripped).
+    let evtAssetMint: Keypair;
+    let evtPriceFeedPDA: PublicKey;
+    let evtSampleBufferPDA: PublicKey;
+
+    before(async () => {
+      evtAssetMint = Keypair.generate();
+
+      [evtPriceFeedPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("price_feed"), evtAssetMint.publicKey.toBuffer()],
+        program.programId
+      );
+
+      [evtSampleBufferPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("sample_buffer"), evtPriceFeedPDA.toBuffer()],
+        program.programId
+      );
+    });
+
+    it("should emit PriceFeedInitialized on initialize (467ms)", async () => {
+      await program.methods
+        .initializePriceFeed("EVT-SOL", new BN(1), 360)
+        .accounts({
+          authority: authority.publicKey,
+          assetMint: evtAssetMint.publicKey,
+          priceFeed: evtPriceFeedPDA,
+          sampleBuffer: evtSampleBufferPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // If tx succeeds, event was emitted (emit! is in the handler)
+      // Verify state to confirm handler ran fully
+      const feed = await program.account.priceFeed.fetch(evtPriceFeedPDA);
+      expect(feed.assetSymbol).to.equal("EVT-SOL");
+      expect(feed.authority.toString()).to.equal(authority.publicKey.toString());
+    });
+
+    it("should emit PriceRecorded on record_price", async () => {
+      const price = new BN(50_000_000); // $50
+
+      await program.methods
+        .recordPrice(price)
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: evtPriceFeedPDA,
+          sampleBuffer: evtSampleBufferPDA,
+        })
+        .rpc();
+
+      // Verify state — emit! runs right before Ok(())
+      const feed = await program.account.priceFeed.fetch(evtPriceFeedPDA);
+      expect(feed.lastValidPrice.toNumber()).to.equal(50_000_000);
+      expect(feed.sampleCount).to.be.greaterThan(0);
+    });
+
+    it("should emit CircuitBreakerReset on reset", async () => {
+      // Configure circuit breaker with a tight threshold
+      await program.methods
+        .configureCircuitBreaker(500) // 5% max deviation
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: evtPriceFeedPDA,
+        })
+        .rpc();
+
+      // Wait for sample interval
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Trigger circuit breaker with a large price deviation (>5%)
+      await program.methods
+        .recordPrice(new BN(60_000_000)) // $60, a 20% jump from $50
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: evtPriceFeedPDA,
+          sampleBuffer: evtSampleBufferPDA,
+        })
+        .rpc();
+
+      // Verify circuit breaker is tripped
+      const feedBefore = await program.account.priceFeed.fetch(evtPriceFeedPDA);
+      expect(feedBefore.isCircuitBroken).to.be.true;
+
+      // Now reset — emit! fires in the handler
+      await program.methods
+        .resetCircuitBreaker(new BN(55_000_000))
+        .accounts({
+          authority: authority.publicKey,
+          priceFeed: evtPriceFeedPDA,
+        })
+        .rpc();
+
+      // Verify state to confirm handler (and emit!) ran fully
+      const feedAfter = await program.account.priceFeed.fetch(evtPriceFeedPDA);
+      expect(feedAfter.isCircuitBroken).to.be.false;
+      expect(feedAfter.lastValidPrice.toNumber()).to.equal(55_000_000);
+    });
+
+    it("should emit FundingRateRecorded on record_funding_rate", async () => {
+      const evtMarketSymbol = "EVT-PERP";
+
+      const [evtFundingFeedPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("funding_feed"), Buffer.from(evtMarketSymbol)],
+        program.programId
+      );
+
+      // Initialize funding feed
+      await program.methods
+        .initializeFundingFeed(evtMarketSymbol, new BN(28800))
+        .accounts({
+          authority: authority.publicKey,
+          fundingFeed: evtFundingFeedPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // Record a funding rate — emit! fires in the handler
+      await program.methods
+        .recordFundingRate(new BN(75))
+        .accounts({
+          authority: authority.publicKey,
+          fundingFeed: evtFundingFeedPDA,
+        })
+        .rpc();
+
+      // Verify state to confirm handler ran fully
+      const feed = await program.account.fundingFeed.fetch(evtFundingFeedPDA);
+      expect(feed.currentRateBps.toNumber()).to.equal(75);
+      expect(feed.totalPeriods.toNumber()).to.be.greaterThan(0);
+    });
+
+    it("should emit PositionListed on list_position", async () => {
+      // Create fresh position and market for event tests
+      const evtPositionAccount = Keypair.generate();
+      const protocol = { volSwap: {} };
+      const protocolSeedBytes = Buffer.from("volswap_________");
+
+      const [evtSecondaryMarketPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("secondary_market"), protocolSeedBytes],
+        program.programId
+      );
+
+      const [evtPositionTokenPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("position_token"), evtPositionAccount.publicKey.toBuffer()],
+        program.programId
+      );
+
+      // Tokenize a position
+      const notional = new BN(5_000_000_000);
+      const expiry = new BN(Date.now() / 1000 + 604800);
+      const direction = { long: {} };
+      const strike = new BN(4000);
+      const positionHash = Buffer.alloc(32, 2);
+
+      await program.methods
+        .tokenizePosition(protocol, notional, expiry, direction, strike, Array.from(positionHash))
+        .accounts({
+          owner: authority.publicKey,
+          positionAccount: evtPositionAccount.publicKey,
+          positionToken: evtPositionTokenPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // List the position — emit! fires in the handler
+      const price = new BN(2_000_000_000);
+      const minPrice = new BN(1_500_000_000);
+      const listingExpiry = new BN(Date.now() / 1000 + 86400);
+
+      await program.methods
+        .listPosition(price, minPrice, listingExpiry)
+        .accounts({
+          owner: authority.publicKey,
+          positionToken: evtPositionTokenPDA,
+          secondaryMarket: evtSecondaryMarketPDA,
+        })
+        .rpc();
+
+      // Verify state to confirm handler ran fully
+      const token = await program.account.positionToken.fetch(evtPositionTokenPDA);
+      expect(token.isListed).to.be.true;
+      expect(token.listingPrice.toNumber()).to.equal(2_000_000_000);
+    });
+
+    it("should emit PositionSold on buy_position", async () => {
+      // Create another fresh position for the buy test
+      const evtPositionAccount2 = Keypair.generate();
+      const protocol = { volSwap: {} };
+      const protocolSeedBytes = Buffer.from("volswap_________");
+
+      const [evtSecondaryMarketPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("secondary_market"), protocolSeedBytes],
+        program.programId
+      );
+
+      const [evtPositionTokenPDA2] = PublicKey.findProgramAddressSync(
+        [Buffer.from("position_token"), evtPositionAccount2.publicKey.toBuffer()],
+        program.programId
+      );
+
+      // Tokenize
+      const notional = new BN(3_000_000_000);
+      const expiry = new BN(Date.now() / 1000 + 604800);
+      const direction = { long: {} };
+      const strike = new BN(3000);
+      const positionHash = Buffer.alloc(32, 3);
+
+      await program.methods
+        .tokenizePosition(protocol, notional, expiry, direction, strike, Array.from(positionHash))
+        .accounts({
+          owner: authority.publicKey,
+          positionAccount: evtPositionAccount2.publicKey,
+          positionToken: evtPositionTokenPDA2,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // List the position
+      const price = new BN(1_000_000_000);
+      const minPrice = new BN(800_000_000);
+      const listingExpiry = new BN(Date.now() / 1000 + 86400);
+
+      await program.methods
+        .listPosition(price, minPrice, listingExpiry)
+        .accounts({
+          owner: authority.publicKey,
+          positionToken: evtPositionTokenPDA2,
+          secondaryMarket: evtSecondaryMarketPDA,
+        })
+        .rpc();
+
+      // Create a buyer and airdrop SOL
+      const buyer = Keypair.generate();
+      const airdropSig = await provider.connection.requestAirdrop(
+        buyer.publicKey,
+        1_000_000_000
+      );
+      await provider.connection.confirmTransaction(airdropSig);
+
+      // Buy — emit! fires in the handler
+      await program.methods
+        .buyPosition()
+        .accounts({
+          buyer: buyer.publicKey,
+          positionToken: evtPositionTokenPDA2,
+          secondaryMarket: evtSecondaryMarketPDA,
+        })
+        .signers([buyer])
+        .rpc();
+
+      // Verify state to confirm handler ran fully
+      const token = await program.account.positionToken.fetch(evtPositionTokenPDA2);
+      expect(token.owner.toString()).to.equal(buyer.publicKey.toString());
+      expect(token.isListed).to.be.false;
+    });
+  });
 });

@@ -1340,5 +1340,311 @@ describe("private-intents", () => {
         }
       });
     });
+
+    // ========================================================================
+    // Cross-Protocol Integration
+    // ========================================================================
+
+    describe("Cross-Protocol Integration", () => {
+      // Known program IDs for target protocols
+      const VOLSWAP_PROGRAM_ID = new PublicKey("FGjwkx9XxzJZvgybXTtDjsWJgCuhXwNJTthFwhfj8nPS");
+      const FUNDING_SWAP_PROGRAM_ID = new PublicKey("GTERstKRN2YBVNwx6UePFhbn7BAfYeJkZmdX7gXqRjjx");
+      const EXOTIC_VAULT_PROGRAM_ID = new PublicKey("6zryMfmTZPcneCvU5Bgs6amu5vg5jK2uQRCSkkNfKf3P");
+
+      it("should submit intent targeting VolSwap pool", async () => {
+        const intentId = new BN(600);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+
+        // Use a mock VolSwap pool pubkey as target
+        const volswapPool = Keypair.generate().publicKey;
+        const collateralAmount = new BN(10_000_000); // 10 USDC
+        const dummyPayload = Buffer.alloc(64);
+        dummyPayload.fill(0xaa);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        await program.methods
+          .submitIntent(
+            intentId,
+            { varianceSwap: {} },
+            collateralAmount,
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA,
+            targetPool: volswapPool,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: intentVaultPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        // Fetch and verify intent stores correct target pool and type
+        const intent = await program.account.encryptedIntent.fetch(intentPDA);
+        expect(intent.targetPool.toString()).to.equal(volswapPool.toString());
+        expect(JSON.stringify(intent.intentType)).to.include("varianceSwap");
+        expect(intent.collateralAmount.toNumber()).to.equal(collateralAmount.toNumber());
+        expect(JSON.stringify(intent.status)).to.include("pending");
+      });
+
+      it("should submit intent targeting FundingSwap pool", async () => {
+        const intentId = new BN(601);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+
+        const fundingPool = Keypair.generate().publicKey;
+        const collateralAmount = new BN(8_000_000); // 8 USDC
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0xbb);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        await program.methods
+          .submitIntent(
+            intentId,
+            { fundingSwap: {} },
+            collateralAmount,
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA,
+            targetPool: fundingPool,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: intentVaultPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        const intent = await program.account.encryptedIntent.fetch(intentPDA);
+        expect(intent.targetPool.toString()).to.equal(fundingPool.toString());
+        expect(JSON.stringify(intent.intentType)).to.include("fundingSwap");
+        expect(intent.collateralAmount.toNumber()).to.equal(collateralAmount.toNumber());
+        expect(JSON.stringify(intent.status)).to.include("pending");
+      });
+
+      it("should submit intent targeting ExoticVault", async () => {
+        const intentId = new BN(602);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+
+        const exoticVault = Keypair.generate().publicKey;
+        const collateralAmount = new BN(15_000_000); // 15 USDC
+        const dummyPayload = Buffer.alloc(56);
+        dummyPayload.fill(0xcc);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        await program.methods
+          .submitIntent(
+            intentId,
+            { exoticOption: {} },
+            collateralAmount,
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA,
+            targetPool: exoticVault,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: intentVaultPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        const intent = await program.account.encryptedIntent.fetch(intentPDA);
+        expect(intent.targetPool.toString()).to.equal(exoticVault.toString());
+        expect(JSON.stringify(intent.intentType)).to.include("exoticOption");
+        expect(intent.collateralAmount.toNumber()).to.equal(collateralAmount.toNumber());
+        expect(JSON.stringify(intent.status)).to.include("pending");
+      });
+
+      it("should execute and verify intent metadata", async () => {
+        // Submit a VarianceSwap intent targeting a mock VolSwap pool
+        const intentId = new BN(603);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+
+        const volswapPool = Keypair.generate().publicKey;
+        const collateralAmount = new BN(6_000_000); // 6 USDC
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0xdd);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        await program.methods
+          .submitIntent(
+            intentId,
+            { varianceSwap: {} },
+            collateralAmount,
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA,
+            targetPool: volswapPool,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: intentVaultPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        // Record created_at before execution
+        const intentBefore = await program.account.encryptedIntent.fetch(intentPDA);
+        const createdAt = intentBefore.createdAt.toNumber();
+        expect(createdAt).to.be.greaterThan(0);
+
+        // Execute intent (no CPI, empty remaining_accounts)
+        const solverTokenAccount = await getOrCreateAssociatedTokenAccount(
+          provider.connection,
+          solver,
+          collateralMint,
+          solver.publicKey
+        );
+
+        const resultPosition = Keypair.generate().publicKey;
+        const cpiData = Buffer.alloc(8); // Minimum discriminator
+
+        await program.methods
+          .executeIntent(
+            new BN(Math.floor(Date.now() / 1000) + 3600),
+            100, // 1% slippage
+            resultPosition,
+            cpiData
+          )
+          .accounts({
+            solver: solver.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA,
+            targetPool: volswapPool,
+            collateralMint: collateralMint,
+            intentVault: intentVaultPDA,
+            solverCollateral: solverTokenAccount.address,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([solver])
+          .rpc();
+
+        // Verify executed intent metadata
+        const intentAfter = await program.account.encryptedIntent.fetch(intentPDA);
+        expect(JSON.stringify(intentAfter.status)).to.include("completed");
+        expect(JSON.stringify(intentAfter.intentType)).to.include("varianceSwap");
+        expect(intentAfter.targetPool.toString()).to.equal(volswapPool.toString());
+        expect(intentAfter.createdAt.toNumber()).to.equal(createdAt);
+        expect(intentAfter.executedAt.toNumber()).to.be.greaterThan(0);
+        expect(intentAfter.executedAt.toNumber()).to.be.greaterThanOrEqual(createdAt);
+        expect(intentAfter.executedBy.toString()).to.equal(solver.publicKey.toString());
+        expect(intentAfter.resultPosition.toString()).to.equal(resultPosition.toString());
+      });
+
+      it("should complete full lifecycle: submit, execute, claim", async () => {
+        const intentId = new BN(604);
+        const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+        const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+
+        const targetPool = Keypair.generate().publicKey;
+        const collateralAmount = new BN(7_000_000); // 7 USDC
+        const dummyPayload = Buffer.alloc(48);
+        dummyPayload.fill(0xee);
+        const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+        // Step 1: Submit
+        await program.methods
+          .submitIntent(
+            intentId,
+            { varianceSwap: {} },
+            collateralAmount,
+            dummyPayload,
+            encPubkey
+          )
+          .accounts({
+            owner: user.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA,
+            targetPool: targetPool,
+            collateralMint: collateralMint,
+            userCollateral: userCollateralAccount,
+            intentVault: intentVaultPDA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        // Verify pending status
+        const intentPending = await program.account.encryptedIntent.fetch(intentPDA);
+        expect(JSON.stringify(intentPending.status)).to.include("pending");
+
+        // Step 2: Execute
+        const solverTokenAccount = await getOrCreateAssociatedTokenAccount(
+          provider.connection,
+          solver,
+          collateralMint,
+          solver.publicKey
+        );
+
+        const resultPosition = Keypair.generate().publicKey;
+        const cpiData = Buffer.alloc(8);
+
+        await program.methods
+          .executeIntent(
+            new BN(Math.floor(Date.now() / 1000) + 3600),
+            100,
+            resultPosition,
+            cpiData
+          )
+          .accounts({
+            solver: solver.publicKey,
+            solverConfig: solverConfigPDA,
+            intent: intentPDA,
+            targetPool: targetPool,
+            collateralMint: collateralMint,
+            intentVault: intentVaultPDA,
+            solverCollateral: solverTokenAccount.address,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([solver])
+          .rpc();
+
+        // Verify completed status
+        const intentCompleted = await program.account.encryptedIntent.fetch(intentPDA);
+        expect(JSON.stringify(intentCompleted.status)).to.include("completed");
+
+        // Step 3: Claim
+        await program.methods
+          .claimResult()
+          .accounts({
+            owner: user.publicKey,
+            intent: intentPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user])
+          .rpc();
+
+        // Verify account is cleaned up (closed)
+        const intentAccount = await provider.connection.getAccountInfo(intentPDA);
+        expect(intentAccount).to.be.null;
+      });
+    });
   });
 });

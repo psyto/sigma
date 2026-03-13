@@ -32,7 +32,7 @@ pub fn handler(ctx: Context<InitializePool>, params: PoolParams) -> Result<()> {
     // Initialize first epoch
     pool.current_epoch = 1;
     pool.epoch_start_time = clock.unix_timestamp;
-    pool.epoch_end_time = clock.unix_timestamp + params.epoch_duration_seconds as i64;
+    pool.epoch_end_time = clock.unix_timestamp.checked_add(params.epoch_duration_seconds as i64).ok_or(VolswapError::Overflow)?;
     pool.strike_variance_bps = params.initial_strike_variance_bps;
     pool.realized_variance_bps = 0;
     pool.is_epoch_settled = false;
