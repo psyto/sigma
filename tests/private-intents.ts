@@ -1556,6 +1556,255 @@ describe("private-intents", () => {
         expect(intentAfter.resultPosition.toString()).to.equal(resultPosition.toString());
       });
 
+      // ================================================================
+      // Cross-Program Slippage Validation Tests
+      // ================================================================
+
+      describe("Slippage validation on execute_intent", () => {
+        // Helper: submit a fresh intent and return its PDAs and target pool
+        async function submitFreshIntent(
+          intentIdNum: number,
+          intentType: any,
+          collateralAmountNum: number
+        ): Promise<{
+          intentId: BN;
+          intentPDA: PublicKey;
+          intentVaultPDA: PublicKey;
+          targetPool: PublicKey;
+        }> {
+          const intentId = new BN(intentIdNum);
+          const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);
+          const [intentVaultPDA] = deriveIntentVaultPDA(intentPDA);
+          const targetPool = Keypair.generate().publicKey;
+          const collateralAmount = new BN(collateralAmountNum);
+          const dummyPayload = Buffer.alloc(48);
+          dummyPayload.fill(0x77);
+          const encPubkey = Buffer.from(userEncryptionKeypair.publicKey);
+
+          await program.methods
+            .submitIntent(
+              intentId,
+              intentType,
+              collateralAmount,
+              dummyPayload,
+              encPubkey
+            )
+            .accounts({
+              owner: user.publicKey,
+              solverConfig: solverConfigPDA,
+              intent: intentPDA,
+              targetPool: targetPool,
+              collateralMint: collateralMint,
+              userCollateral: userCollateralAccount,
+              intentVault: intentVaultPDA,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([user])
+            .rpc();
+
+          return { intentId, intentPDA, intentVaultPDA, targetPool };
+        }
+
+        // Helper: execute intent with a given slippage_bps
+        async function executeWithSlippage(
+          intentPDA: PublicKey,
+          intentVaultPDA: PublicKey,
+          targetPool: PublicKey,
+          slippageBps: number
+        ): Promise<void> {
+          const solverTokenAccount = await getOrCreateAssociatedTokenAccount(
+            provider.connection,
+            solver,
+            collateralMint,
+            solver.publicKey
+          );
+
+          const resultPosition = Keypair.generate().publicKey;
+          const cpiData = Buffer.alloc(8);
+
+          await program.methods
+            .executeIntent(
+              new BN(Math.floor(Date.now() / 1000) + 3600),
+              slippageBps,
+              resultPosition,
+              cpiData
+            )
+            .accounts({
+              solver: solver.publicKey,
+              solverConfig: solverConfigPDA,
+              intent: intentPDA,
+              targetPool: targetPool,
+              collateralMint: collateralMint,
+              intentVault: intentVaultPDA,
+              solverCollateral: solverTokenAccount.address,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([solver])
+            .rpc();
+        }
+
+        it("should accept slippage_bps = 0 (exact execution, VarianceSwap)", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(700, { varianceSwap: {} }, 5_000_000);
+
+          await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 0);
+
+          const intent = await program.account.encryptedIntent.fetch(intentPDA);
+          expect(JSON.stringify(intent.status)).to.include("completed");
+        });
+
+        it("should accept slippage_bps = 50 (0.5%, FundingSwap)", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(701, { fundingSwap: {} }, 4_000_000);
+
+          await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 50);
+
+          const intent = await program.account.encryptedIntent.fetch(intentPDA);
+          expect(JSON.stringify(intent.status)).to.include("completed");
+        });
+
+        it("should accept slippage_bps = 100 (1%, ExoticOption)", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(702, { exoticOption: {} }, 6_000_000);
+
+          await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 100);
+
+          const intent = await program.account.encryptedIntent.fetch(intentPDA);
+          expect(JSON.stringify(intent.status)).to.include("completed");
+        });
+
+        it("should accept slippage_bps = 500 (5%, VarianceSwap)", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(703, { varianceSwap: {} }, 3_000_000);
+
+          await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 500);
+
+          const intent = await program.account.encryptedIntent.fetch(intentPDA);
+          expect(JSON.stringify(intent.status)).to.include("completed");
+        });
+
+        it("should accept slippage_bps = 5000 (50% boundary, max allowed)", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(704, { fundingSwap: {} }, 2_000_000);
+
+          await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 5000);
+
+          const intent = await program.account.encryptedIntent.fetch(intentPDA);
+          expect(JSON.stringify(intent.status)).to.include("completed");
+        });
+
+        it("should reject slippage_bps = 5001 (just over 50% cap)", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(705, { varianceSwap: {} }, 2_000_000);
+
+          try {
+            await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 5001);
+            expect.fail("Should have thrown - slippage exceeds 50% cap");
+          } catch (e: any) {
+            expect(e.message).to.include("SlippageExceeded");
+          }
+        });
+
+        it("should reject slippage_bps = 10000 (100%)", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(706, { exoticOption: {} }, 2_000_000);
+
+          try {
+            await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 10000);
+            expect.fail("Should have thrown - slippage exceeds 50% cap");
+          } catch (e: any) {
+            expect(e.message).to.include("SlippageExceeded");
+          }
+        });
+
+        it("should accept slippage_bps = 0 with FundingSwap intent type", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(707, { fundingSwap: {} }, 3_000_000);
+
+          await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 0);
+
+          const intent = await program.account.encryptedIntent.fetch(intentPDA);
+          expect(JSON.stringify(intent.status)).to.include("completed");
+        });
+
+        it("should accept slippage_bps = 0 with ExoticOption intent type", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(708, { exoticOption: {} }, 3_000_000);
+
+          await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 0);
+
+          const intent = await program.account.encryptedIntent.fetch(intentPDA);
+          expect(JSON.stringify(intent.status)).to.include("completed");
+        });
+
+        it("should reject max u16 slippage_bps = 65535", async () => {
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(709, { varianceSwap: {} }, 2_000_000);
+
+          try {
+            await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 65535);
+            expect.fail("Should have thrown - slippage exceeds 50% cap");
+          } catch (e: any) {
+            expect(e.message).to.include("SlippageExceeded");
+          }
+        });
+
+        it("should verify collateral transfer with slippage_bps = 0", async () => {
+          const collateralAmount = 4_000_000;
+          const { intentPDA, intentVaultPDA, targetPool } =
+            await submitFreshIntent(710, { varianceSwap: {} }, collateralAmount);
+
+          const solverTokenAccount = await getOrCreateAssociatedTokenAccount(
+            provider.connection,
+            solver,
+            collateralMint,
+            solver.publicKey
+          );
+
+          const solverBalanceBefore = await provider.connection.getTokenAccountBalance(
+            solverTokenAccount.address
+          );
+
+          await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 0);
+
+          const solverBalanceAfter = await provider.connection.getTokenAccountBalance(
+            solverTokenAccount.address
+          );
+          const received =
+            Number(solverBalanceAfter.value.amount) -
+            Number(solverBalanceBefore.value.amount);
+          expect(received).to.equal(collateralAmount);
+
+          const intent = await program.account.encryptedIntent.fetch(intentPDA);
+          expect(JSON.stringify(intent.status)).to.include("completed");
+        });
+
+        it("should reject slippage over cap for each protocol type (VarianceSwap, FundingSwap, ExoticOption)", async () => {
+          const intentTypes = [
+            { varianceSwap: {} },
+            { fundingSwap: {} },
+            { exoticOption: {} },
+          ];
+          const startId = 711;
+
+          for (let i = 0; i < intentTypes.length; i++) {
+            const { intentPDA, intentVaultPDA, targetPool } =
+              await submitFreshIntent(startId + i, intentTypes[i], 2_000_000);
+
+            try {
+              await executeWithSlippage(intentPDA, intentVaultPDA, targetPool, 6000);
+              expect.fail(
+                `Should have thrown - slippage exceeds cap for protocol type index ${i}`
+              );
+            } catch (e: any) {
+              expect(e.message).to.include("SlippageExceeded");
+            }
+          }
+        });
+      });
+
       it("should complete full lifecycle: submit, execute, claim", async () => {
         const intentId = new BN(604);
         const [intentPDA] = deriveIntentPDA(user.publicKey, intentId);

@@ -603,6 +603,54 @@ describe("funding-swap", () => {
     }
 
     /**
+     * Helper: open a payer swap and return its PDA.
+     */
+    async function openPayerSwap(
+      notional: BN,
+      durationPeriods: number,
+      minFixedRateBps: number,
+      signer?: Keypair,
+      signerCollateral?: PublicKey,
+    ): Promise<PublicKey> {
+      const pool = await program.account.fundingPool.fetch(poolPDA);
+      const swapIndex = pool.totalSwaps;
+      const user = signer ? signer.publicKey : authority.publicKey;
+
+      const [swapPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("swap"),
+          poolPDA.toBuffer(),
+          user.toBuffer(),
+          swapIndex.toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId
+      );
+
+      const accounts = {
+        user,
+        pool: poolPDA,
+        swap: swapPDA,
+        userCollateral: signerCollateral ?? userCollateralAccount,
+        poolVault: poolVaultPDA,
+        collateralMint: collateralMint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      };
+
+      const tx = program.methods
+        .openPayer(notional, durationPeriods, minFixedRateBps)
+        .accounts(accounts);
+
+      if (signer) {
+        await tx.signers([signer]).rpc();
+      } else {
+        await tx.rpc();
+      }
+
+      return swapPDA;
+    }
+
+    /**
      * Helper: record a funding rate in the oracle and process a funding period.
      */
     async function recordAndProcessFunding(rateBps: number): Promise<void> {
@@ -627,12 +675,60 @@ describe("funding-swap", () => {
         .rpc();
     }
 
-    it("should deplete margin on under-margin position after adverse funding", async () => {
+    /**
+     * Compute the expected P&L and payout exactly matching on-chain settle_swap logic.
+     *
+     * On-chain formula (settle_swap.rs):
+     *   avg_rate_diff = pool.last_actual_rate_bps - swap.fixed_rate_bps
+     *   total_pnl = notional * avg_rate_diff * duration_periods / 10000   (integer division)
+     *   final_pnl = total_pnl for receiver, -total_pnl for payer
+     *   payout = collateral + final_pnl  (clamped >= 0)
+     */
+    function computeExpectedPnl(
+      notional: number,
+      lastActualRateBps: number,
+      fixedRateBps: number,
+      durationPeriods: number,
+      isReceiver: boolean,
+    ): number {
+      const avgRateDiff = lastActualRateBps - fixedRateBps;
+      const totalPnl = Math.trunc(notional * avgRateDiff * durationPeriods / 10000);
+      return isReceiver ? totalPnl : -totalPnl;
+    }
+
+    function computeExpectedPayout(collateral: number, finalPnl: number): number {
+      if (finalPnl >= 0) {
+        return collateral + finalPnl;
+      } else {
+        return Math.max(0, collateral - Math.abs(finalPnl));
+      }
+    }
+
+    /**
+     * Compute the collateral required by open_swap.
+     * margin = notional * 50 * durationPeriods / 10000
+     * fee = notional * feeRateBps / 10000
+     */
+    function computeExpectedCollateral(
+      notional: number,
+      durationPeriods: number,
+      feeRateBps: number,
+    ): number {
+      const margin = Math.trunc(notional * 50 * durationPeriods / 10000);
+      const fee = Math.trunc(notional * feeRateBps / 10000);
+      return margin + fee;
+    }
+
+    it("should deplete margin on under-margin position after adverse funding (exact P&L)", async () => {
       // Open a receiver swap with minimum duration (short swap = small margin).
       // Receiver pays fixed, receives floating. If floating << fixed, receiver loses.
       const notional = new BN(1_000_000_000); // 1B lamports
       const durationPeriods = 2;
       const maxFixedRateBps = 200;
+
+      // Read pool state to know the fixed rate that will be assigned
+      const poolAtOpen = await program.account.fundingPool.fetch(poolPDA);
+      const assignedFixedRate = poolAtOpen.currentFixedRateBps;
 
       const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
 
@@ -641,18 +737,26 @@ describe("funding-swap", () => {
       const collateralBefore = positionBefore.collateralDeposited.toNumber();
       expect(collateralBefore).to.be.greaterThan(0);
 
-      // Process funding periods with a very negative rate (adverse for receiver).
-      // Receiver profits when actual > fixed; a very negative actual rate means big loss.
-      await recordAndProcessFunding(-200);
-      await recordAndProcessFunding(-200);
+      // Verify the swap got the expected fixed rate
+      expect(positionBefore.fixedRateBps).to.equal(assignedFixedRate);
 
-      // The swap should now have ended (2 periods elapsed).
-      // Settle and verify that loss ate into margin.
-      const pool = await program.account.fundingPool.fetch(poolPDA);
-      const positionMid = await program.account.fundingSwapPosition.fetch(swapPDA);
-      expect(positionMid.status).to.deep.equal({ active: {} });
+      // Verify collateral matches expected margin + fee
+      const poolFeeRate = poolAtOpen.feeRateBps;
+      const expectedCollateral = computeExpectedCollateral(
+        notional.toNumber(), durationPeriods, poolFeeRate
+      );
+      expect(collateralBefore).to.equal(expectedCollateral);
+
+      // Process funding periods with a very negative rate (adverse for receiver).
+      const adverseRate = -200;
+      await recordAndProcessFunding(adverseRate);
+      await recordAndProcessFunding(adverseRate);
 
       // Settle the swap
+      const poolAtSettle = await program.account.fundingPool.fetch(poolPDA);
+      const lastActualRate = poolAtSettle.lastActualRateBps.toNumber();
+      expect(lastActualRate).to.equal(adverseRate);
+
       await program.methods
         .settleSwap()
         .accounts({
@@ -665,28 +769,45 @@ describe("funding-swap", () => {
       const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
       expect(positionAfter.status).to.deep.equal({ settled: {} });
 
-      // The accumulated PnL should be negative (receiver lost money with negative rates)
-      expect(positionAfter.accumulatedPnl.toNumber()).to.be.lessThan(0);
+      // Compute and verify exact P&L
+      const expectedPnl = computeExpectedPnl(
+        notional.toNumber(), lastActualRate, assignedFixedRate, durationPeriods, true
+      );
+      expect(expectedPnl).to.be.lessThan(0, "receiver should lose with negative funding");
+      expect(positionAfter.accumulatedPnl.toNumber()).to.equal(expectedPnl);
 
-      // Payout should be less than collateral deposited
-      expect(positionAfter.payoutAmount.toNumber()).to.be.lessThan(collateralBefore);
+      // Verify exact payout
+      const expectedPayout = computeExpectedPayout(collateralBefore, expectedPnl);
+      expect(positionAfter.payoutAmount.toNumber()).to.equal(expectedPayout);
+      expect(expectedPayout).to.be.lessThan(collateralBefore);
     });
 
-    it("should settle and claim after processing all funding periods", async () => {
+    it("should settle and claim after processing all funding periods (exact P&L)", async () => {
       // Open a receiver swap and process all periods, then settle and claim
       const notional = new BN(5_000_000_000);
       const durationPeriods = 3;
       const maxFixedRateBps = 200;
 
+      const poolAtOpen = await program.account.fundingPool.fetch(poolPDA);
+      const assignedFixedRate = poolAtOpen.currentFixedRateBps;
+
       const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
 
       const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
-      expect(positionBefore.collateralDeposited.toNumber()).to.be.greaterThan(0);
+      const collateralBefore = positionBefore.collateralDeposited.toNumber();
+      expect(collateralBefore).to.be.greaterThan(0);
+      expect(positionBefore.fixedRateBps).to.equal(assignedFixedRate);
 
       // Record funding rates and process 3 periods
-      await recordAndProcessFunding(300);
-      await recordAndProcessFunding(300);
-      await recordAndProcessFunding(300);
+      // The settle logic uses pool.last_actual_rate_bps (the last recorded rate)
+      const oracleRate = 300;
+      await recordAndProcessFunding(oracleRate);
+      await recordAndProcessFunding(oracleRate);
+      await recordAndProcessFunding(oracleRate);
+
+      // Verify the oracle rate is correctly stored
+      const poolAtSettle = await program.account.fundingPool.fetch(poolPDA);
+      expect(poolAtSettle.lastActualRateBps.toNumber()).to.equal(oracleRate);
 
       // Settle the completed swap
       await program.methods
@@ -701,6 +822,18 @@ describe("funding-swap", () => {
       const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
       expect(positionAfter.status).to.deep.equal({ settled: {} });
       expect(positionAfter.periodsSettled).to.equal(durationPeriods);
+
+      // Verify exact P&L: receiver profits when actual > fixed
+      const expectedPnl = computeExpectedPnl(
+        notional.toNumber(), oracleRate, assignedFixedRate, durationPeriods, true
+      );
+      expect(expectedPnl).to.be.greaterThan(0, "receiver should profit when actual > fixed");
+      expect(positionAfter.accumulatedPnl.toNumber()).to.equal(expectedPnl);
+
+      // Verify exact payout
+      const expectedPayout = computeExpectedPayout(collateralBefore, expectedPnl);
+      expect(positionAfter.payoutAmount.toNumber()).to.equal(expectedPayout);
+      expect(expectedPayout).to.be.greaterThan(collateralBefore);
 
       // Claim the payout
       await program.methods
@@ -725,11 +858,14 @@ describe("funding-swap", () => {
       }
     });
 
-    it("should close swap with loss after unfavorable funding", async () => {
+    it("should close swap with loss after unfavorable funding (exact P&L)", async () => {
       // Open a receiver swap. Then feed unfavorable (negative) rates.
       const notional = new BN(5_000_000_000);
       const durationPeriods = 3;
       const maxFixedRateBps = 200;
+
+      const poolAtOpen = await program.account.fundingPool.fetch(poolPDA);
+      const assignedFixedRate = poolAtOpen.currentFixedRateBps;
 
       const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
 
@@ -737,9 +873,14 @@ describe("funding-swap", () => {
       const collateralBefore = positionBefore.collateralDeposited.toNumber();
 
       // Record unfavorable funding rates (low/negative => receiver loses)
-      await recordAndProcessFunding(-100);
-      await recordAndProcessFunding(-100);
-      await recordAndProcessFunding(-100);
+      const unfavorableRate = -100;
+      await recordAndProcessFunding(unfavorableRate);
+      await recordAndProcessFunding(unfavorableRate);
+      await recordAndProcessFunding(unfavorableRate);
+
+      // Verify oracle rate
+      const poolAtSettle = await program.account.fundingPool.fetch(poolPDA);
+      expect(poolAtSettle.lastActualRateBps.toNumber()).to.equal(unfavorableRate);
 
       // Settle the completed swap
       await program.methods
@@ -754,11 +895,17 @@ describe("funding-swap", () => {
       const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
       expect(positionAfter.status).to.deep.equal({ settled: {} });
 
-      // PnL should be negative (receiver loses when actual < fixed)
-      expect(positionAfter.accumulatedPnl.toNumber()).to.be.lessThan(0);
+      // Verify exact P&L
+      const expectedPnl = computeExpectedPnl(
+        notional.toNumber(), unfavorableRate, assignedFixedRate, durationPeriods, true
+      );
+      expect(expectedPnl).to.be.lessThan(0, "receiver loses when actual < fixed");
+      expect(positionAfter.accumulatedPnl.toNumber()).to.equal(expectedPnl);
 
-      // Payout should be less than collateral deposited
-      expect(positionAfter.payoutAmount.toNumber()).to.be.lessThan(collateralBefore);
+      // Verify exact payout (clamped >= 0)
+      const expectedPayout = computeExpectedPayout(collateralBefore, expectedPnl);
+      expect(positionAfter.payoutAmount.toNumber()).to.equal(expectedPayout);
+      expect(expectedPayout).to.be.lessThan(collateralBefore);
 
       // Claim reduced payout
       await program.methods
@@ -788,12 +935,20 @@ describe("funding-swap", () => {
       const durationPeriods = 5;
       const maxFixedRateBps = 200;
 
+      const poolAtOpen = await program.account.fundingPool.fetch(poolPDA);
+      const assignedFixedRate = poolAtOpen.currentFixedRateBps;
+
       const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
+      const collateralBefore = positionBefore.collateralDeposited.toNumber();
 
       const poolBefore = await program.account.fundingPool.fetch(poolPDA);
       const periodsBefore = poolBefore.totalPeriodsProcessed.toNumber();
 
       // Process 5 funding periods sequentially with varying rates
+      // Note: settle_swap uses only pool.last_actual_rate_bps (the last rate),
+      // NOT the average across periods. So the final rate determines the P&L.
       const rates = [80, -50, 120, -30, 200];
       for (const rate of rates) {
         await recordAndProcessFunding(rate);
@@ -810,6 +965,9 @@ describe("funding-swap", () => {
         poolBefore.currentPeriod.toNumber() + 5
       );
 
+      // The last actual rate should be the final rate (200)
+      expect(poolAfter.lastActualRateBps.toNumber()).to.equal(200);
+
       // Settle the swap after all periods are processed
       await program.methods
         .settleSwap()
@@ -823,6 +981,16 @@ describe("funding-swap", () => {
       const position = await program.account.fundingSwapPosition.fetch(swapPDA);
       expect(position.status).to.deep.equal({ settled: {} });
       expect(position.periodsSettled).to.equal(durationPeriods);
+
+      // Verify exact P&L using last rate (200) as the oracle rate
+      const expectedPnl = computeExpectedPnl(
+        notional.toNumber(), 200, assignedFixedRate, durationPeriods, true
+      );
+      expect(position.accumulatedPnl.toNumber()).to.equal(expectedPnl);
+
+      // Verify exact payout
+      const expectedPayout = computeExpectedPayout(collateralBefore, expectedPnl);
+      expect(position.payoutAmount.toNumber()).to.equal(expectedPayout);
     });
 
     it("should reject closing an already-settled swap", async () => {
@@ -864,6 +1032,248 @@ describe("funding-swap", () => {
       } catch (e: any) {
         expect(e.message).to.include("SwapAlreadySettled");
       }
+    });
+
+    it("should compute zero P&L when oracle rate equals fixed rate", async () => {
+      // Read the current fixed rate so we can feed it as the oracle rate
+      const poolAtOpen = await program.account.fundingPool.fetch(poolPDA);
+      const assignedFixedRate = poolAtOpen.currentFixedRateBps;
+
+      const notional = new BN(5_000_000_000);
+      const durationPeriods = 2;
+      const maxFixedRateBps = 300;
+
+      const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
+      const collateralBefore = positionBefore.collateralDeposited.toNumber();
+
+      // Feed the exact fixed rate as the oracle rate so rate_diff = 0
+      await recordAndProcessFunding(assignedFixedRate);
+      await recordAndProcessFunding(assignedFixedRate);
+
+      // Verify oracle stored the rate
+      const poolAtSettle = await program.account.fundingPool.fetch(poolPDA);
+      expect(poolAtSettle.lastActualRateBps.toNumber()).to.equal(assignedFixedRate);
+
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionAfter.status).to.deep.equal({ settled: {} });
+
+      // P&L should be exactly 0: notional * 0 * duration / 10000 = 0
+      expect(positionAfter.accumulatedPnl.toNumber()).to.equal(0);
+
+      // Payout should exactly equal collateral
+      expect(positionAfter.payoutAmount.toNumber()).to.equal(collateralBefore);
+    });
+
+    it("should compute exact P&L for payer position with negative funding rate", async () => {
+      // A payer profits when actual < fixed. Set a negative oracle rate.
+      const poolAtOpen = await program.account.fundingPool.fetch(poolPDA);
+      const assignedFixedRate = poolAtOpen.currentFixedRateBps;
+
+      const notional = new BN(5_000_000_000);
+      const durationPeriods = 2;
+      // Payer requires fixed rate >= minFixedRateBps; use a very low floor
+      const minFixedRateBps = -300;
+
+      const swapPDA = await openPayerSwap(notional, durationPeriods, minFixedRateBps);
+
+      const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
+      const collateralBefore = positionBefore.collateralDeposited.toNumber();
+      expect(positionBefore.isReceiver).to.be.false;
+      expect(positionBefore.fixedRateBps).to.equal(assignedFixedRate);
+
+      // Feed a negative oracle rate -- payer profits when actual < fixed
+      const negativeRate = -150;
+      await recordAndProcessFunding(negativeRate);
+      await recordAndProcessFunding(negativeRate);
+
+      const poolAtSettle = await program.account.fundingPool.fetch(poolPDA);
+      expect(poolAtSettle.lastActualRateBps.toNumber()).to.equal(negativeRate);
+
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionAfter.status).to.deep.equal({ settled: {} });
+
+      // For payer: pnl = -(notional * (actual - fixed) * duration / 10000)
+      // When actual < fixed, (actual - fixed) is negative, so -(-) = positive pnl
+      const expectedPnl = computeExpectedPnl(
+        notional.toNumber(), negativeRate, assignedFixedRate, durationPeriods, false
+      );
+      expect(expectedPnl).to.be.greaterThan(0, "payer profits when actual < fixed");
+      expect(positionAfter.accumulatedPnl.toNumber()).to.equal(expectedPnl);
+
+      // Payout should exceed collateral
+      const expectedPayout = computeExpectedPayout(collateralBefore, expectedPnl);
+      expect(positionAfter.payoutAmount.toNumber()).to.equal(expectedPayout);
+      expect(expectedPayout).to.be.greaterThan(collateralBefore);
+    });
+
+    it("should clamp payout to zero when loss exceeds collateral", async () => {
+      // Open a receiver with minimal collateral (short duration = small margin),
+      // then feed an extremely negative rate to create a loss larger than collateral.
+      const poolAtOpen = await program.account.fundingPool.fetch(poolPDA);
+      const assignedFixedRate = poolAtOpen.currentFixedRateBps;
+
+      const notional = new BN(10_000_000_000); // large notional
+      const durationPeriods = 1; // minimal duration => small margin
+      const maxFixedRateBps = 300;
+
+      const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
+      const collateralBefore = positionBefore.collateralDeposited.toNumber();
+
+      // margin = 10B * 50 * 1 / 10000 = 50_000_000
+      // Use a very negative rate to create loss >> collateral
+      // loss = 10B * (abs(rateDiff)) * 1 / 10000
+      // With rate = -999 (max allowed by oracle): rateDiff = -999 - fixedRate
+      // This should produce a large loss well exceeding margin + fee
+      const extremeRate = -999;
+      await recordAndProcessFunding(extremeRate);
+
+      const poolAtSettle = await program.account.fundingPool.fetch(poolPDA);
+      expect(poolAtSettle.lastActualRateBps.toNumber()).to.equal(extremeRate);
+
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionAfter.status).to.deep.equal({ settled: {} });
+
+      const expectedPnl = computeExpectedPnl(
+        notional.toNumber(), extremeRate, assignedFixedRate, durationPeriods, true
+      );
+      expect(expectedPnl).to.be.lessThan(0);
+      // Verify loss exceeds collateral (i.e. payout should be clamped)
+      expect(Math.abs(expectedPnl)).to.be.greaterThan(collateralBefore);
+      expect(positionAfter.accumulatedPnl.toNumber()).to.equal(expectedPnl);
+
+      // Payout clamped to 0 via saturating_sub
+      const expectedPayout = computeExpectedPayout(collateralBefore, expectedPnl);
+      expect(expectedPayout).to.equal(0);
+      expect(positionAfter.payoutAmount.toNumber()).to.equal(0);
+    });
+
+    it("should compute exact P&L with maximum notional", async () => {
+      // Use max_notional (1_000_000_000_000) from pool params
+      const poolAtOpen = await program.account.fundingPool.fetch(poolPDA);
+      const assignedFixedRate = poolAtOpen.currentFixedRateBps;
+      const maxNotional = poolAtOpen.maxNotional.toNumber();
+
+      const notional = new BN(maxNotional);
+      const durationPeriods = 1;
+      const maxFixedRateBps = 300;
+
+      const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
+      const collateralBefore = positionBefore.collateralDeposited.toNumber();
+
+      // Verify collateral calculation with max notional
+      const poolFeeRate = poolAtOpen.feeRateBps;
+      const expectedCollateral = computeExpectedCollateral(maxNotional, durationPeriods, poolFeeRate);
+      expect(collateralBefore).to.equal(expectedCollateral);
+
+      // Use a moderate positive rate for a profitable receiver position
+      const oracleRate = 100;
+      await recordAndProcessFunding(oracleRate);
+
+      const poolAtSettle = await program.account.fundingPool.fetch(poolPDA);
+      expect(poolAtSettle.lastActualRateBps.toNumber()).to.equal(oracleRate);
+
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionAfter.status).to.deep.equal({ settled: {} });
+
+      // Verify exact P&L with large notional
+      const expectedPnl = computeExpectedPnl(
+        maxNotional, oracleRate, assignedFixedRate, durationPeriods, true
+      );
+      expect(positionAfter.accumulatedPnl.toNumber()).to.equal(expectedPnl);
+
+      const expectedPayout = computeExpectedPayout(collateralBefore, expectedPnl);
+      expect(positionAfter.payoutAmount.toNumber()).to.equal(expectedPayout);
+    });
+
+    it("should compute exact P&L with zero oracle funding rate", async () => {
+      const poolAtOpen = await program.account.fundingPool.fetch(poolPDA);
+      const assignedFixedRate = poolAtOpen.currentFixedRateBps;
+
+      const notional = new BN(5_000_000_000);
+      const durationPeriods = 2;
+      const maxFixedRateBps = 300;
+
+      const swapPDA = await openReceiverSwap(notional, durationPeriods, maxFixedRateBps);
+
+      const positionBefore = await program.account.fundingSwapPosition.fetch(swapPDA);
+      const collateralBefore = positionBefore.collateralDeposited.toNumber();
+
+      // Feed zero funding rate
+      await recordAndProcessFunding(0);
+      await recordAndProcessFunding(0);
+
+      const poolAtSettle = await program.account.fundingPool.fetch(poolPDA);
+      expect(poolAtSettle.lastActualRateBps.toNumber()).to.equal(0);
+
+      await program.methods
+        .settleSwap()
+        .accounts({
+          user: authority.publicKey,
+          pool: poolPDA,
+          swap: swapPDA,
+        })
+        .rpc();
+
+      const positionAfter = await program.account.fundingSwapPosition.fetch(swapPDA);
+      expect(positionAfter.status).to.deep.equal({ settled: {} });
+
+      // With zero oracle rate: pnl = notional * (0 - fixedRate) * duration / 10000
+      // If fixedRate > 0, receiver loses (pays fixed, receives zero floating)
+      const expectedPnl = computeExpectedPnl(
+        notional.toNumber(), 0, assignedFixedRate, durationPeriods, true
+      );
+      expect(positionAfter.accumulatedPnl.toNumber()).to.equal(expectedPnl);
+
+      // If fixed rate is positive, pnl should be negative for receiver
+      if (assignedFixedRate > 0) {
+        expect(expectedPnl).to.be.lessThan(0);
+        expect(positionAfter.payoutAmount.toNumber()).to.be.lessThan(collateralBefore);
+      }
+
+      const expectedPayout = computeExpectedPayout(collateralBefore, expectedPnl);
+      expect(positionAfter.payoutAmount.toNumber()).to.equal(expectedPayout);
     });
   });
 });

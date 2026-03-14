@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::{
     errors::OracleError,
-    state::{AggregationMethod, PriceSource, PriceSourceType},
+    state::{AggregationMethod, PriceFeed, PriceSource, PriceSourceType},
     AddPriceSource, InitializeAggregatedFeed, UpdateAggregatedPrice,
 };
 
@@ -141,25 +141,12 @@ pub fn update_aggregated_price(ctx: Context<UpdateAggregatedPrice>) -> Result<()
 // ============================================================================
 
 fn read_sigma_price(account_info: &AccountInfo) -> Result<u64> {
-    // Read PriceFeed account data
+    // Deserialize the PriceFeed account using Anchor's try_deserialize,
+    // which correctly handles variable-length Borsh fields (e.g. asset_symbol: String).
     let data = account_info.try_borrow_data()?;
+    let price_feed = PriceFeed::try_deserialize(&mut &data[..])?;
 
-    // Skip discriminator (8 bytes), authority (32), symbol (4 + 16), mint (32), pyth (1 + 32)
-    // Then sample_interval (8), max_samples (2), sample_count (2), last_sample_time (8)
-    // Then last_price at offset ~137
-    // This is fragile - better to use proper deserialization
-
-    if data.len() < 150 {
-        return Ok(0);
-    }
-
-    // For now, read last_price which is at a known offset
-    // In production, use Account<PriceFeed> deserialization
-    let offset = 8 + 32 + 4 + 16 + 32 + 33 + 8 + 2 + 2 + 8; // ~145
-    let price_bytes: [u8; 8] = data[offset..offset + 8].try_into().map_err(|_| OracleError::InvalidPriceFeed)?;
-    let price = u64::from_le_bytes(price_bytes);
-
-    Ok(price)
+    Ok(price_feed.last_price)
 }
 
 fn read_pyth_price(account_info: &AccountInfo, _current_timestamp: i64) -> Result<u64> {

@@ -34,6 +34,70 @@ export { VolswapClient, type PoolParams } from "./volswap";
 export { FundingSwapClient, type FundingPoolParams } from "./funding-swap";
 export { ExoticVaultClient, type VaultParams } from "./exotic-vault";
 
+// Re-export PrivateIntentClient and related types from private-intents package
+export {
+  PrivateIntentClient,
+  CrossChainClient,
+  CollateralSource,
+  IntentType,
+  IntentStatus,
+  getIntentStatusName,
+  getSchemaForIntentType,
+  // Encryption primitives
+  encrypt,
+  decrypt,
+  generateEncryptionKeypair,
+  deriveEncryptionKeypair,
+  encryptForMultiple,
+  encryptionKeyToBase58,
+  base58ToEncryptionKey,
+  validateEncryptedData,
+  // Threshold encryption
+  splitSecret,
+  combineShares,
+  verifyShares,
+  createThresholdEncryption,
+  decryptWithThreshold,
+  // Payload serialization
+  serializePayload,
+  deserializePayload,
+  calculateSchemaSize,
+  // Intent schemas and serialization
+  serializeVarianceSwapIntent,
+  deserializeVarianceSwapIntent,
+  validateVarianceSwapIntent,
+  serializeFundingSwapIntent,
+  deserializeFundingSwapIntent,
+  validateFundingSwapIntent,
+  serializeExoticOptionIntent,
+  deserializeExoticOptionIntent,
+  validateExoticOptionIntent,
+  getOptionTypeName,
+  ExoticOptionType,
+  VARIANCE_SWAP_SCHEMA,
+  FUNDING_SWAP_SCHEMA,
+  EXOTIC_OPTION_SCHEMA,
+  PRIVATE_INTENTS_PROGRAM_ID,
+  SEEDS,
+  // Wormhole
+  WormholeClient,
+} from "@sigma-protocol/private-intents";
+
+// Re-export types from private-intents
+export type {
+  EncryptionKeypair,
+  EncryptedData,
+  SecretShare,
+  ThresholdConfig,
+  FieldType,
+  FieldDef,
+  PayloadSchema,
+  VarianceSwapIntent,
+  FundingSwapIntent,
+  ExoticOptionIntent,
+  WormholeConfig,
+} from "@sigma-protocol/private-intents";
+
 // Re-export types
 export * from "./types";
 
