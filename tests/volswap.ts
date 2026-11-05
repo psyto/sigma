@@ -10,6 +10,7 @@ import {
   getAccount,
 } from "@solana/spl-token";
 import { expect } from "chai";
+import { ensureConfig } from "./helpers/config";
 
 type Volswap = any;
 
@@ -29,7 +30,12 @@ describe("volswap", () => {
   let poolVaultPDA: PublicKey;
   let userCollateralAccount: PublicKey;
 
+  let oracleConfigPDA: PublicKey;
+  let configPDA: PublicKey;
+
   before(async () => {
+    oracleConfigPDA = await ensureConfig(oracleProgram, "oracle_config", "initializeOracleConfig");
+    configPDA = await ensureConfig(program, "config", "initializeConfig");
     // Create collateral mint (USDC-like)
     collateralMint = await createMint(
       provider.connection,
@@ -63,6 +69,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializePriceFeed("SOL", new BN(1), 360)
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           assetMint: underlyingMint,
           priceFeed: priceFeedPDA,
@@ -85,6 +92,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializeVarianceTracker(new BN(604800))
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           priceFeed: priceFeedPDA,
           varianceTracker: varianceTrackerPDA,
@@ -144,6 +152,7 @@ describe("volswap", () => {
         await program.methods
           .initializePool(poolParams)
           .accounts({
+            config: configPDA,
             authority: authority.publicKey,
             collateralMint: collateralMint,
             underlyingMint: underlyingMint,
@@ -414,6 +423,7 @@ describe("volswap", () => {
         await program.methods
           .settleEpoch()
           .accounts({
+            priceFeed: priceFeedPDA,
             authority: authority.publicKey,
             pool: poolPDA,
             varianceTracker: varianceTrackerPDA,
@@ -618,6 +628,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializePriceFeed("CAP", new BN(1), 360)
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           assetMint: cappedUnderlyingMint,
           priceFeed: cappedPriceFeedPDA,
@@ -635,6 +646,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializeVarianceTracker(new BN(604800))
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           priceFeed: cappedPriceFeedPDA,
           varianceTracker: cappedVarianceTrackerPDA,
@@ -666,6 +678,7 @@ describe("volswap", () => {
       await program.methods
         .initializePool(poolParams)
         .accounts({
+          config: configPDA,
           authority: authority.publicKey,
           collateralMint: collateralMint,
           underlyingMint: cappedUnderlyingMint,
@@ -688,6 +701,7 @@ describe("volswap", () => {
       await program.methods
         .settleEpoch()
         .accounts({
+          priceFeed: cappedPriceFeedPDA,
           authority: authority.publicKey,
           pool: cappedPoolPDA,
           varianceTracker: cappedVarianceTrackerPDA,
@@ -743,6 +757,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializePriceFeed("TRN", new BN(1), 360)
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           assetMint: transitionUnderlyingMint,
           priceFeed: transitionPriceFeedPDA,
@@ -759,6 +774,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializeVarianceTracker(new BN(604800))
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           priceFeed: transitionPriceFeedPDA,
           varianceTracker: transitionVarianceTrackerPDA,
@@ -789,6 +805,7 @@ describe("volswap", () => {
       await program.methods
         .initializePool(poolParams)
         .accounts({
+          config: configPDA,
           authority: authority.publicKey,
           collateralMint: collateralMint,
           underlyingMint: transitionUnderlyingMint,
@@ -813,6 +830,7 @@ describe("volswap", () => {
       await program.methods
         .settleEpoch()
         .accounts({
+          priceFeed: transitionPriceFeedPDA,
           authority: authority.publicKey,
           pool: transitionPoolPDA,
           varianceTracker: transitionVarianceTrackerPDA,
@@ -851,6 +869,7 @@ describe("volswap", () => {
       await program.methods
         .settleEpoch()
         .accounts({
+          priceFeed: transitionPriceFeedPDA,
           authority: authority.publicKey,
           pool: transitionPoolPDA,
           varianceTracker: transitionVarianceTrackerPDA,
@@ -886,6 +905,7 @@ describe("volswap", () => {
         await program.methods
           .settleEpoch()
           .accounts({
+            priceFeed: transitionPriceFeedPDA,
             authority: authority.publicKey,
             pool: transitionPoolPDA,
             varianceTracker: transitionVarianceTrackerPDA,
@@ -906,6 +926,7 @@ describe("volswap", () => {
       await program.methods
         .settleEpoch()
         .accounts({
+          priceFeed: transitionPriceFeedPDA,
           authority: authority.publicKey,
           pool: transitionPoolPDA,
           varianceTracker: transitionVarianceTrackerPDA,
@@ -917,6 +938,7 @@ describe("volswap", () => {
         await program.methods
           .settleEpoch()
           .accounts({
+            priceFeed: transitionPriceFeedPDA,
             authority: authority.publicKey,
             pool: transitionPoolPDA,
             varianceTracker: transitionVarianceTrackerPDA,
@@ -964,6 +986,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializePriceFeed("ZRO", new BN(1), 360)
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           assetMint: zeroVarMint,
           priceFeed: zeroVarPriceFeed,
@@ -980,6 +1003,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializeVarianceTracker(new BN(604800))
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           priceFeed: zeroVarPriceFeed,
           varianceTracker: zeroVarTracker,
@@ -1008,6 +1032,7 @@ describe("volswap", () => {
           earlyExitPenaltyBps: 500,
         })
         .accounts({
+          config: configPDA,
           authority: authority.publicKey,
           collateralMint: collateralMint,
           underlyingMint: zeroVarMint,
@@ -1032,6 +1057,7 @@ describe("volswap", () => {
       await program.methods
         .settleEpoch()
         .accounts({
+          priceFeed: zeroVarPriceFeed,
           authority: authority.publicKey,
           pool: zeroVarPool,
           varianceTracker: zeroVarTracker,
@@ -1076,6 +1102,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializePriceFeed("HGH", new BN(1), 360)
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           assetMint: highCapMint,
           priceFeed: highCapPriceFeed,
@@ -1092,6 +1119,7 @@ describe("volswap", () => {
       await oracleProgram.methods
         .initializeVarianceTracker(new BN(604800))
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           priceFeed: highCapPriceFeed,
           varianceTracker: highCapTracker,
@@ -1120,6 +1148,7 @@ describe("volswap", () => {
           earlyExitPenaltyBps: 500,
         })
         .accounts({
+          config: configPDA,
           authority: authority.publicKey,
           collateralMint: collateralMint,
           underlyingMint: highCapMint,
@@ -1138,6 +1167,7 @@ describe("volswap", () => {
       await program.methods
         .settleEpoch()
         .accounts({
+          priceFeed: highCapPriceFeed,
           authority: authority.publicKey,
           pool: highCapPool,
           varianceTracker: highCapTracker,
@@ -1267,6 +1297,7 @@ describe("volswap", () => {
         await program.methods
           .settleEpoch()
           .accounts({
+            priceFeed: priceFeedPDA,
             authority: unauthorizedUser.publicKey,
             pool: poolPDA,
             varianceTracker: varianceTrackerPDA,

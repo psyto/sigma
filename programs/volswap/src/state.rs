@@ -377,3 +377,16 @@ pub struct EpochRecord {
     /// Epoch end timestamp
     pub end_time: i64,
 }
+
+/// Program-wide admin. Created once by the program's upgrade authority.
+#[account]
+#[derive(InitSpace)]
+pub struct VolswapConfig {
+    /// Admin allowed to create canonical accounts
+    pub admin: Pubkey,
+    pub bump: u8,
+}
+
+impl VolswapConfig {
+    pub const SEED_PREFIX: &'static [u8] = b"config";
+}

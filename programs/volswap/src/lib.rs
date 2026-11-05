@@ -23,6 +23,14 @@ use errors::VolswapError;
 pub mod volswap {
     use super::*;
 
+    /// Set the program admin once. Only the program's upgrade authority may call this.
+    pub fn initialize_config(ctx: Context<InitializeConfig>, admin: Pubkey) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.admin = admin;
+        config.bump = ctx.bumps.config;
+        Ok(())
+    }
+
     /// Initialize a variance swap pool for an underlying asset
     pub fn initialize_pool(
         ctx: Context<InitializePool>,
@@ -123,8 +131,14 @@ pub struct PoolParams {
 
 #[derive(Accounts)]
 pub struct InitializePool<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == config.admin @ VolswapError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [VolswapConfig::SEED_PREFIX], bump = config.bump)]
+    pub config: Account<'info, VolswapConfig>,
 
     pub collateral_mint: Account<'info, Mint>,
 
@@ -229,9 +243,23 @@ pub struct SettleEpoch<'info> {
     )]
     pub pool: Account<'info, VariancePool>,
 
-    /// Variance tracker from shared oracle
-    /// CHECK: Validated via seeds
+    /// Price feed from shared oracle
+    /// CHECK: Re-derived as the shared-oracle price feed PDA for pool.underlying_mint
     #[account(
+        seeds = [b"price_feed", pool.underlying_mint.as_ref()],
+        bump,
+        seeds::program = shared_oracle::ID,
+        constraint = price_feed.key() == pool.price_feed @ VolswapError::InvalidOracle,
+        constraint = price_feed.owner == &shared_oracle::ID @ VolswapError::InvalidOracle
+    )]
+    pub price_feed: AccountInfo<'info>,
+
+    /// Variance tracker from shared oracle
+    /// CHECK: Re-derived as the shared-oracle variance tracker PDA for price_feed
+    #[account(
+        seeds = [b"variance_tracker", price_feed.key().as_ref()],
+        bump,
+        seeds::program = shared_oracle::ID,
         constraint = variance_tracker.key() == pool.variance_tracker @ VolswapError::InvalidOracle,
         constraint = variance_tracker.owner == &shared_oracle::ID @ VolswapError::InvalidOracle
     )]
@@ -525,4 +553,27 @@ pub struct LiquidityWithdrawn {
     pub provider: Pubkey,
     pub shares: u64,
     pub amount: u64,
+}
+
+#[derive(Accounts)]
+pub struct InitializeConfig<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + VolswapConfig::INIT_SPACE,
+        seeds = [VolswapConfig::SEED_PREFIX],
+        bump
+    )]
+    pub config: Account<'info, VolswapConfig>,
+
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ VolswapError::Unauthorized)]
+    pub program: Program<'info, crate::program::Volswap>,
+
+    #[account(constraint = program_data.upgrade_authority_address == Some(payer.key()) @ VolswapError::Unauthorized)]
+    pub program_data: Account<'info, ProgramData>,
+
+    pub system_program: Program<'info, System>,
 }
