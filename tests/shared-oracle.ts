@@ -735,10 +735,12 @@ describe("shared-oracle", () => {
       );
       try {
         await program.methods
-          .tokenizePosition({ fundingSwap: {} }, new BN(0))
+          .tokenizePosition({ fundingSwap: {} })
           .accounts({
             owner: authority.publicKey,
             positionAccount: fake.publicKey,
+            positionPool: fundingSwap.pool,
+            protocolProgram: fundingSwap.programId,
             positionToken: fakeToken,
             systemProgram: SystemProgram.programId,
           })
@@ -752,7 +754,6 @@ describe("shared-oracle", () => {
     it("should tokenize a position", async () => {
       const positionKey = await fundingSwap.openReceiver(new BN(10_000_000_000)); // $10,000
       positionAccount = { publicKey: positionKey };
-      const expiry = new BN(Date.now() / 1000 + 604800); // 7 days
 
       [positionTokenPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("position_token"), positionAccount.publicKey.toBuffer()],
@@ -761,18 +762,23 @@ describe("shared-oracle", () => {
 
       try {
         await program.methods
-          .tokenizePosition({ fundingSwap: {} }, expiry)
+          .tokenizePosition({ fundingSwap: {} })
           .accounts({
             owner: authority.publicKey,
             positionAccount: positionAccount.publicKey,
+            positionPool: fundingSwap.pool,
+            protocolProgram: fundingSwap.programId,
             positionToken: positionTokenPDA,
             systemProgram: SystemProgram.programId,
           })
           .rpc();
 
-        // Terms come from the position account
+        // Terms come from the position account; the position is now held by the token PDA
         const token = await program.account.positionToken.fetch(positionTokenPDA);
         expect(token.notional.toNumber()).to.equal(10_000_000_000);
+        expect(token.expiry.toNumber()).to.be.greaterThan(Date.now() / 1000); // 10 x 1h periods
+        const position = await fundingSwap.fetchPosition(positionAccount.publicKey);
+        expect(position.owner.toString()).to.equal(positionTokenPDA.toString());
         expect(token.direction).to.deep.equal({ long: {} }); // receiver
         expect(token.isActive).to.be.true;
         expect(token.isListed).to.be.false;
@@ -803,6 +809,22 @@ describe("shared-oracle", () => {
       } catch (e) {
         console.log("List position error:", e);
         throw e;
+      }
+    });
+
+    it("should reject re-listing a listed position", async () => {
+      try {
+        await program.methods
+          .listPosition(new BN(3_000_000_000), new BN(0), new BN(0))
+          .accounts({
+            owner: authority.publicKey,
+            positionToken: positionTokenPDA,
+            secondaryMarket: secondaryMarketPDA,
+          })
+          .rpc();
+        expect.fail("re-listing should fail");
+      } catch (e: any) {
+        expect(e.toString()).to.include("AlreadyListed");
       }
     });
 
@@ -845,13 +867,37 @@ describe("shared-oracle", () => {
       const { buyer, ata: buyerAta } = await fundedBuyer(2_000_000_000);
       const sellerBefore = (await provider.connection.getTokenAccountBalance(sellerQuoteAta)).value.amount;
 
+      const buyAccounts = {
+        buyer: buyer.publicKey,
+        positionToken: positionTokenPDA,
+        secondaryMarket: secondaryMarketPDA,
+        positionAccount: positionAccount.publicKey,
+        buyerTokenAccount: buyerAta,
+        sellerTokenAccount: sellerQuoteAta,
+        feeRecipientTokenAccount: feeRecipientQuoteAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      };
+
+      // A buyer's max price below the listing price is rejected
       try {
         await program.methods
-          .buyPosition()
+          .buyPosition(new BN(1_499_999_999))
+          .accounts(buyAccounts)
+          .signers([buyer])
+          .rpc();
+        expect.fail("buy above max price should fail");
+      } catch (e: any) {
+        expect(e.toString()).to.include("PriceAboveMax");
+      }
+
+      try {
+        await program.methods
+          .buyPosition(new BN(1_500_000_000))
           .accounts({
             buyer: buyer.publicKey,
             positionToken: positionTokenPDA,
             secondaryMarket: secondaryMarketPDA,
+            positionAccount: positionAccount.publicKey,
             buyerTokenAccount: buyerAta,
             sellerTokenAccount: sellerQuoteAta,
             feeRecipientTokenAccount: feeRecipientQuoteAta,
@@ -875,6 +921,28 @@ describe("shared-oracle", () => {
       } catch (e) {
         console.log("Buy position error:", e);
         throw e;
+      }
+    });
+
+    it("should redeem the position to the token holder", async () => {
+      const token = await program.account.positionToken.fetch(positionTokenPDA);
+      const holder = token.owner as PublicKey;
+      expect(holder.toString()).to.not.equal(authority.publicKey.toString());
+
+      // The previous owner cannot redeem
+      try {
+        await program.methods
+          .redeemPosition()
+          .accounts({
+            owner: authority.publicKey,
+            positionToken: positionTokenPDA,
+            positionAccount: positionAccount.publicKey,
+            protocolProgram: fundingSwap.programId,
+          })
+          .rpc();
+        expect.fail("redeem by a non-holder should fail");
+      } catch (e: any) {
+        expect(e.toString()).to.include("Unauthorized");
       }
     });
   });
@@ -1034,13 +1102,13 @@ describe("shared-oracle", () => {
       );
 
       // Tokenize the position
-      const expiry = new BN(Date.now() / 1000 + 604800);
-
       await program.methods
-        .tokenizePosition({ fundingSwap: {} }, expiry)
+        .tokenizePosition({ fundingSwap: {} })
         .accounts({
           owner: authority.publicKey,
           positionAccount: evtPositionAccount.publicKey,
+          positionPool: fundingSwap.pool,
+          protocolProgram: fundingSwap.programId,
           positionToken: evtPositionTokenPDA,
           systemProgram: SystemProgram.programId,
         })
@@ -1082,13 +1150,13 @@ describe("shared-oracle", () => {
       );
 
       // Tokenize the position
-      const expiry = new BN(Date.now() / 1000 + 604800);
-
       await program.methods
-        .tokenizePosition({ fundingSwap: {} }, expiry)
+        .tokenizePosition({ fundingSwap: {} })
         .accounts({
           owner: authority.publicKey,
           positionAccount: evtPositionAccount2.publicKey,
+          positionPool: fundingSwap.pool,
+          protocolProgram: fundingSwap.programId,
           positionToken: evtPositionTokenPDA2,
           systemProgram: SystemProgram.programId,
         })
@@ -1119,11 +1187,12 @@ describe("shared-oracle", () => {
       await mintTo(provider.connection, payer, otherMint, otherAta, payer, 1_000_000_000);
       try {
         await program.methods
-          .buyPosition()
+          .buyPosition(new BN(1_000_000_000))
           .accounts({
             buyer: buyer.publicKey,
             positionToken: evtPositionTokenPDA2,
             secondaryMarket: evtSecondaryMarketPDA,
+            positionAccount: evtPositionAccount2.publicKey,
             buyerTokenAccount: otherAta,
             sellerTokenAccount: sellerQuoteAta,
             feeRecipientTokenAccount: feeRecipientQuoteAta,
@@ -1138,11 +1207,12 @@ describe("shared-oracle", () => {
 
       // Buy — emit! fires in the handler
       await program.methods
-        .buyPosition()
+        .buyPosition(new BN(1_000_000_000))
         .accounts({
           buyer: buyer.publicKey,
           positionToken: evtPositionTokenPDA2,
           secondaryMarket: evtSecondaryMarketPDA,
+          positionAccount: evtPositionAccount2.publicKey,
           buyerTokenAccount: buyerAta,
           sellerTokenAccount: sellerQuoteAta,
           feeRecipientTokenAccount: feeRecipientQuoteAta,
@@ -1155,6 +1225,21 @@ describe("shared-oracle", () => {
       const token = await program.account.positionToken.fetch(evtPositionTokenPDA2);
       expect(token.owner.toString()).to.equal(buyer.publicKey.toString());
       expect(token.isListed).to.be.false;
+
+      // The buyer redeems: the position comes out of custody to the buyer
+      await program.methods
+        .redeemPosition()
+        .accounts({
+          owner: buyer.publicKey,
+          positionToken: evtPositionTokenPDA2,
+          positionAccount: evtPositionAccount2.publicKey,
+          protocolProgram: fundingSwap.programId,
+        })
+        .signers([buyer])
+        .rpc();
+      const position = await fundingSwap.fetchPosition(evtPositionAccount2.publicKey);
+      expect(position.owner.toString()).to.equal(buyer.publicKey.toString());
+      expect(await provider.connection.getAccountInfo(evtPositionTokenPDA2)).to.be.null;
     });
   });
   // ============================================================================

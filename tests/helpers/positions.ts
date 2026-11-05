@@ -30,6 +30,14 @@ export class FundingSwapFixture {
     this.marketSymbol = marketSymbol;
   }
 
+  get programId(): PublicKey {
+    return this.program.programId;
+  }
+
+  async fetchPosition(position: PublicKey): Promise<any> {
+    return this.program.account.fundingSwapPosition.fetch(position);
+  }
+
   async setup(): Promise<void> {
     const payer = (this.provider.wallet as any).payer as Keypair;
     const wallet = this.provider.wallet.publicKey;
@@ -67,7 +75,7 @@ export class FundingSwapFixture {
     await this.program.methods
       .initializePool({
         marketSymbol: this.marketSymbol,
-        fundingPeriodSeconds: new BN(1),
+        fundingPeriodSeconds: new BN(3600), // expiry (derived on-chain) lands hours ahead
         minNotional: new BN(1_000_000_000),
         maxNotional: new BN(1_000_000_000_000),
         maxDurationPeriods: 90,

@@ -181,4 +181,10 @@ pub enum OracleError {
 
     #[msg("Position is not active")]
     PositionNotOpen,
+
+    #[msg("Listing price is above the buyer's maximum")]
+    PriceAboveMax,
+
+    #[msg("Position is not held by the position token")]
+    PositionNotInCustody,
 }

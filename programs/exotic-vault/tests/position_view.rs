@@ -1,5 +1,6 @@
 //! shared-oracle mirrors ExoticOption's layout to read it; check they agree.
 use anchor_lang::prelude::*;
+use anchor_lang::Discriminator;
 use exotic_vault::state::{ExoticOption, OptionStatus, OptionType};
 use shared_oracle::position_view::read_position;
 use shared_oracle::{PositionDirection, SigmaProtocol};
@@ -43,16 +44,26 @@ fn reads_exotic_option() {
         let opt = option(OptionStatus::Active, barrier);
         let view = read(&opt, &exotic_vault::ID).unwrap();
         assert_eq!(view.owner, opt.owner);
+        assert_eq!(view.parent, opt.vault);
+        assert!(view.is_live);
         assert_eq!(view.notional, 9_000_000);
         assert_eq!(view.strike, 150_000_000);
         assert_eq!(view.expiry, Some(1_700_000_000));
         assert_eq!(view.direction, PositionDirection::Long);
     }
-    assert!(read(&option(OptionStatus::KnockedIn, Some(1)), &exotic_vault::ID).is_ok());
+    assert!(read(&option(OptionStatus::KnockedIn, Some(1)), &exotic_vault::ID).unwrap().is_live);
+    assert!(!read(&option(OptionStatus::Settled, None), &exotic_vault::ID).unwrap().is_live);
 }
 
 #[test]
-fn rejects_settled_or_foreign_owner() {
-    assert!(read(&option(OptionStatus::Settled, None), &exotic_vault::ID).is_err());
+fn rejects_foreign_owner() {
     assert!(read(&option(OptionStatus::Active, None), &Pubkey::new_unique()).is_err());
+}
+
+#[test]
+fn transfer_instruction_discriminator_matches() {
+    assert_eq!(
+        exotic_vault::instruction::TransferPositionOwner::DISCRIMINATOR,
+        &shared_oracle::position_view::transfer_owner_discriminator()[..]
+    );
 }

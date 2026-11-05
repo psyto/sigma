@@ -1043,8 +1043,11 @@ pub struct PositionToken {
     /// Listing price (if listed, in USDC scaled by 1e6)
     pub listing_price: u64,
 
-    /// Minimum acceptable price for auction
+    /// Seller's floor; listing_price must be at least this
     pub min_price: u64,
+
+    /// Listing expiry timestamp (0 = no expiry)
+    pub listing_expiry: i64,
 
     /// Whether this position token is valid/active
     pub is_active: bool,
@@ -1111,9 +1114,8 @@ pub struct SecondaryMarket {
     /// Protocol this market serves
     pub protocol: SigmaProtocol,
 
-    /// Active listings
-    #[max_len(100)]
-    pub listings: Vec<MarketListing>,
+    /// Number of position tokens currently listed in this market
+    pub active_listings: u32,
 
     /// Total volume traded (USD, scaled by 1e6)
     pub total_volume: u64,
@@ -1136,53 +1138,10 @@ pub struct SecondaryMarket {
     pub bump: u8,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace)]
-pub struct MarketListing {
-    /// Position token account
-    pub position_token: Pubkey,
-    /// Seller
-    pub seller: Pubkey,
-    /// Asking price (USDC, scaled by 1e6)
-    pub price: u64,
-    /// Listing timestamp
-    pub listed_at: i64,
-    /// Expiry of listing (0 = no expiry)
-    pub listing_expiry: i64,
-    /// Whether listing is active
-    pub is_active: bool,
-}
-
 impl SecondaryMarket {
-    /// Get active listings sorted by price (lowest first)
-    pub fn get_sorted_listings(&self) -> Vec<&MarketListing> {
-        let mut active: Vec<&MarketListing> = self
-            .listings
-            .iter()
-            .filter(|l| l.is_active)
-            .collect();
-        active.sort_by_key(|l| l.price);
-        active
-    }
-
-    /// Calculate average listing price
-    pub fn calculate_avg_price(&self) -> u64 {
-        let active: Vec<&MarketListing> = self
-            .listings
-            .iter()
-            .filter(|l| l.is_active)
-            .collect();
-
-        if active.is_empty() {
-            return 0;
-        }
-
-        let sum: u128 = active.iter().map(|l| l.price as u128).sum();
-        (sum / active.len() as u128) as u64
-    }
-
     /// Get number of active listings
     pub fn active_listing_count(&self) -> usize {
-        self.listings.iter().filter(|l| l.is_active).count()
+        self.active_listings as usize
     }
 }
 

@@ -15,7 +15,7 @@ use errors::OracleError;
 pub use state::{
     VolatilityIndex, VolatilityIndexSample, VolatilityRegime,
     CexFundingFeed, ExchangeFundingSource, CexExchange, FundingAggregationMethod, CexFundingRateSample,
-    PositionToken, SecondaryMarket, MarketListing, SigmaProtocol, PositionDirection,
+    PositionToken, SecondaryMarket, SigmaProtocol, PositionDirection,
 };
 
 /// Shared Oracle Program for Sigma Protocol
@@ -464,7 +464,7 @@ pub mod shared_oracle {
 
         market.authority = ctx.accounts.authority.key();
         market.protocol = protocol;
-        market.listings = Vec::new();
+        market.active_listings = 0;
         market.total_volume = 0;
         market.total_trades = 0;
         market.fee_rate_bps = fee_rate_bps;
@@ -479,16 +479,27 @@ pub mod shared_oracle {
     /// Tokenize a position for secondary market trading.
     ///
     /// `position_account` must be a live position of `protocol`'s program owned
-    /// by the signer; notional, direction, strike and the position hash are
-    /// read from it. `expiry` is used for protocols whose positions do not
-    /// store an expiry timestamp (VolSwap, FundingSwap).
-    pub fn tokenize_position(
-        ctx: Context<TokenizePosition>,
-        protocol: SigmaProtocol,
-        expiry: i64,
-    ) -> Result<()> {
+    /// by the signer. Its ownership is handed to the position_token PDA (CPI to
+    /// the protocol's transfer_position_owner), so whoever holds the token is
+    /// the only one who can get the position back (redeem_position). Notional,
+    /// direction, strike, expiry and the position hash are read on-chain;
+    /// `position_pool` is the position's pool (VolSwap / FundingSwap) or vault
+    /// (ExoticVault).
+    pub fn tokenize_position(ctx: Context<TokenizePosition>, protocol: SigmaProtocol) -> Result<()> {
         let view = position_view::read_position(protocol, &ctx.accounts.position_account)?;
         require_keys_eq!(view.owner, ctx.accounts.owner.key(), OracleError::Unauthorized);
+        require!(view.is_live, OracleError::PositionNotOpen);
+        let expiry = position_view::position_expiry(protocol, &view, &ctx.accounts.position_pool)?;
+
+        // Take custody: the position's owner becomes the position_token PDA
+        position_view::transfer_position_owner(
+            protocol,
+            &ctx.accounts.protocol_program,
+            &ctx.accounts.owner.to_account_info(),
+            &ctx.accounts.position_account,
+            ctx.accounts.position_token.key(),
+            None,
+        )?;
 
         let token = &mut ctx.accounts.position_token;
         let clock = Clock::get()?;
@@ -499,20 +510,41 @@ pub mod shared_oracle {
         token.position_hash = view.data_hash;
         token.notional = view.notional;
         token.mark_to_market = view.notional as i64; // Initial MTM = notional
-        token.expiry = view.expiry.unwrap_or(expiry);
+        token.expiry = expiry;
         token.direction = view.direction;
         token.strike = view.strike;
         token.created_at = clock.unix_timestamp;
         token.is_listed = false;
         token.listing_price = 0;
         token.min_price = 0;
+        token.listing_expiry = 0;
         token.is_active = true;
         token.bump = ctx.bumps.position_token;
 
         Ok(())
     }
 
-    /// List a position token for sale
+    /// Give the underlying position back to the token holder and close the
+    /// position token. The token must not be listed.
+    pub fn redeem_position(ctx: Context<RedeemPosition>) -> Result<()> {
+        let protocol = ctx.accounts.position_token.protocol;
+        let position_key = ctx.accounts.position_account.key();
+        let bump = [ctx.accounts.position_token.bump];
+        let seeds: &[&[u8]] = &[b"position_token", position_key.as_ref(), &bump];
+
+        position_view::transfer_position_owner(
+            protocol,
+            &ctx.accounts.protocol_program,
+            &ctx.accounts.position_token.to_account_info(),
+            &ctx.accounts.position_account,
+            ctx.accounts.owner.key(),
+            Some(seeds),
+        )?;
+        // position_token is closed to the owner (close = owner)
+        Ok(())
+    }
+
+    /// List a position token for sale at a fixed price
     pub fn list_position(
         ctx: Context<ListPosition>,
         price: u64,
@@ -524,24 +556,22 @@ pub mod shared_oracle {
         let clock = Clock::get()?;
 
         require!(token.is_active, OracleError::PositionInactive);
+        require!(!token.is_listed, OracleError::AlreadyListed);
         require!(!token.is_expired(clock.unix_timestamp), OracleError::PositionExpired);
+        require!(price >= min_price, OracleError::PriceBelowMinimum);
+        require!(
+            listing_expiry == 0 || listing_expiry > clock.unix_timestamp,
+            OracleError::ListingExpired
+        );
 
         token.is_listed = true;
         token.listing_price = price;
         token.min_price = min_price;
-
-        // Add to market listings
-        market.listings.push(MarketListing {
-            position_token: ctx.accounts.position_token.key(),
-            seller: ctx.accounts.owner.key(),
-            price,
-            listed_at: clock.unix_timestamp,
-            listing_expiry,
-            is_active: true,
-        });
+        token.listing_expiry = listing_expiry;
+        market.active_listings = market.active_listings.saturating_add(1);
 
         emit!(PositionListed {
-            position_token: ctx.accounts.position_token.key(),
+            position_token: token.key(),
             seller: ctx.accounts.owner.key(),
             price,
         });
@@ -557,19 +587,33 @@ pub mod shared_oracle {
         token.is_listed = false;
         token.listing_price = 0;
         token.min_price = 0;
-
-        // Remove from market listings
-        if let Some(idx) = market.listings.iter().position(|l| l.position_token == ctx.accounts.position_token.key()) {
-            market.listings[idx].is_active = false;
-        }
+        token.listing_expiry = 0;
+        market.active_listings = market.active_listings.saturating_sub(1);
 
         Ok(())
     }
 
-    /// Buy a listed position
-    pub fn buy_position(ctx: Context<BuyPosition>) -> Result<()> {
-        require!(ctx.accounts.position_token.is_listed, OracleError::NotListed);
-        require!(ctx.accounts.position_token.is_active, OracleError::PositionInactive);
+    /// Buy a listed position. `max_price` is the most the buyer will pay; the
+    /// listing price is read from the token at execution.
+    pub fn buy_position(ctx: Context<BuyPosition>, max_price: u64) -> Result<()> {
+        let clock = Clock::get()?;
+        {
+            let token = &ctx.accounts.position_token;
+            require!(token.is_listed, OracleError::NotListed);
+            require!(token.is_active, OracleError::PositionInactive);
+            require!(token.listing_price <= max_price, OracleError::PriceAboveMax);
+            require!(token.listing_price >= token.min_price, OracleError::PriceBelowMinimum);
+            require!(
+                token.listing_expiry == 0 || clock.unix_timestamp <= token.listing_expiry,
+                OracleError::ListingExpired
+            );
+            require!(!token.is_expired(clock.unix_timestamp), OracleError::PositionExpired);
+
+            // The underlying position must still be open and held in custody
+            let view = position_view::read_position(token.protocol, &ctx.accounts.position_account)?;
+            require_keys_eq!(view.owner, token.key(), OracleError::PositionNotInCustody);
+            require!(view.is_live, OracleError::PositionNotOpen);
+        }
 
         let price = ctx.accounts.position_token.listing_price;
         let fee = (price as u128 * ctx.accounts.secondary_market.fee_rate_bps as u128 / 10_000) as u64;
@@ -607,20 +651,16 @@ pub mod shared_oracle {
         let token = &mut ctx.accounts.position_token;
         let market = &mut ctx.accounts.secondary_market;
 
-        // Transfer ownership
+        // Transfer ownership of the token (the position stays in custody)
         token.owner = ctx.accounts.buyer.key();
         token.is_listed = false;
         token.listing_price = 0;
         token.min_price = 0;
+        token.listing_expiry = 0;
 
-        // Update market stats
         market.total_volume = market.total_volume.saturating_add(price);
         market.total_trades += 1;
-
-        // Deactivate listing
-        if let Some(idx) = market.listings.iter().position(|l| l.position_token == position_token_key && l.is_active) {
-            market.listings[idx].is_active = false;
-        }
+        market.active_listings = market.active_listings.saturating_sub(1);
 
         emit!(PositionSold {
             position_token: position_token_key,
@@ -1127,9 +1167,17 @@ pub struct TokenizePosition<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
-    /// CHECK: Original position account; owner program, discriminator and
-    /// owner field are checked in the handler (position_view::read_position)
+    /// CHECK: Original position account; owner program, discriminator, owner
+    /// field and status are checked in the handler (position_view)
+    #[account(mut)]
     pub position_account: AccountInfo<'info>,
+
+    /// CHECK: The position's pool (VolSwap / FundingSwap) or vault (ExoticVault);
+    /// key, owner program and discriminator are checked in the handler
+    pub position_pool: AccountInfo<'info>,
+
+    /// CHECK: The protocol program; its key is checked against `protocol` in the handler
+    pub protocol_program: AccountInfo<'info>,
 
     #[account(
         init,
@@ -1141,6 +1189,34 @@ pub struct TokenizePosition<'info> {
     pub position_token: Account<'info, PositionToken>,
 
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct RedeemPosition<'info> {
+    #[account(
+        mut,
+        constraint = owner.key() == position_token.owner @ OracleError::Unauthorized
+    )]
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"position_token", position_account.key().as_ref()],
+        bump = position_token.bump,
+        constraint = !position_token.is_listed @ OracleError::AlreadyListed,
+        close = owner
+    )]
+    pub position_token: Account<'info, PositionToken>,
+
+    /// CHECK: The custodied position; must be the token's position account
+    #[account(
+        mut,
+        constraint = position_account.key() == position_token.position_account @ OracleError::InvalidPositionAccount
+    )]
+    pub position_account: AccountInfo<'info>,
+
+    /// CHECK: The protocol program; its key is checked against the token's protocol
+    pub protocol_program: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -1199,6 +1275,12 @@ pub struct BuyPosition<'info> {
         constraint = secondary_market.is_active @ OracleError::MarketInactive
     )]
     pub secondary_market: Account<'info, SecondaryMarket>,
+
+    /// CHECK: The token's underlying position; re-read in the handler
+    #[account(
+        constraint = position_account.key() == position_token.position_account @ OracleError::InvalidPositionAccount
+    )]
+    pub position_account: AccountInfo<'info>,
 
     #[account(
         mut,
