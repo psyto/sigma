@@ -255,20 +255,21 @@ export class VolswapClient {
 
   /**
    * Close a position early (with penalty)
+   *
+   * `position` is the position account. Pass it when the wallet is not the
+   * original opener (e.g. after buying and redeeming it on the secondary
+   * market); otherwise it is derived from the wallet as the opener.
    */
   async closePositionEarly(
     underlyingMint: PublicKey,
     collateralMint: PublicKey,
     userCollateral: PublicKey,
-    epoch: BN
+    epoch: BN,
+    position?: PublicKey
   ): Promise<string> {
     const [pool] = findVariancePoolPDA(underlyingMint);
     const [poolVault] = findPoolVaultPDA(pool);
-    const [position] = findVariancePositionPDA(
-      pool,
-      this.provider.wallet.publicKey,
-      epoch
-    );
+    position = position ?? findVariancePositionPDA(pool, this.provider.wallet.publicKey, epoch)[0];
 
     return this.program.methods
       .closePositionEarly()
@@ -286,20 +287,21 @@ export class VolswapClient {
 
   /**
    * Claim payout after epoch settlement
+   *
+   * `position` is the position account. Pass it when the wallet is not the
+   * original opener (e.g. after buying and redeeming it on the secondary
+   * market); otherwise it is derived from the wallet as the opener.
    */
   async claimPayout(
     underlyingMint: PublicKey,
     collateralMint: PublicKey,
     userCollateral: PublicKey,
-    epoch: BN
+    epoch: BN,
+    position?: PublicKey
   ): Promise<string> {
     const [pool] = findVariancePoolPDA(underlyingMint);
     const [poolVault] = findPoolVaultPDA(pool);
-    const [position] = findVariancePositionPDA(
-      pool,
-      this.provider.wallet.publicKey,
-      epoch
-    );
+    position = position ?? findVariancePositionPDA(pool, this.provider.wallet.publicKey, epoch)[0];
 
     return this.program.methods
       .claimPayout()

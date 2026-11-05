@@ -36,6 +36,15 @@ function protocolForProgram(programId: PublicKey): SigmaProtocolName {
   throw new Error("account is not owned by a Sigma protocol program");
 }
 
+/** Anchor decodes the SigmaProtocol enum as e.g. `{ fundingSwap: {} }`. */
+function protocolName(protocol: Record<string, unknown>): SigmaProtocolName {
+  const name = Object.keys(protocol)[0];
+  if (name !== "volSwap" && name !== "fundingSwap" && name !== "exoticVault") {
+    throw new Error("unknown protocol: " + name);
+  }
+  return name;
+}
+
 /**
  * Client for interacting with the Sigma SharedOracle program
  */
@@ -480,10 +489,10 @@ export class OracleClient {
     positionToken: PublicKey,
     price: BN,
     minPrice: BN = new BN(0),
-    listingExpiry: BN = new BN(0),
-    protocol: SigmaProtocolName = "volSwap"
+    listingExpiry: BN = new BN(0)
   ): Promise<string> {
-    const [secondaryMarket] = findSecondaryMarketPDA(protocol);
+    const token = await (this.program.account as any).positionToken.fetch(positionToken);
+    const [secondaryMarket] = findSecondaryMarketPDA(protocolName(token.protocol));
 
     return this.program.methods
       .listPosition(price, minPrice, listingExpiry)
@@ -502,12 +511,11 @@ export class OracleClient {
    */
   async buyPosition(
     positionToken: PublicKey,
-    maxPrice: BN,
-    protocol: SigmaProtocolName = "volSwap"
+    maxPrice: BN
   ): Promise<string> {
-    const [secondaryMarket] = findSecondaryMarketPDA(protocol);
-    const market = await (this.program.account as any).secondaryMarket.fetch(secondaryMarket);
     const token = await (this.program.account as any).positionToken.fetch(positionToken);
+    const [secondaryMarket] = findSecondaryMarketPDA(protocolName(token.protocol));
+    const market = await (this.program.account as any).secondaryMarket.fetch(secondaryMarket);
     const buyer = this.provider.wallet.publicKey;
     const mint: PublicKey = market.quoteMint;
 

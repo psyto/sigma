@@ -393,18 +393,19 @@ export class ExoticVaultClient {
 
   /**
    * Settle an option at expiry
+   *
+   * `option` is the option account. Pass it when the wallet is not the
+   * original opener (e.g. after buying and redeeming it on the secondary
+   * market); otherwise it is derived from the wallet as the opener.
    */
   async settleOption(
     underlyingMint: PublicKey,
-    optionIndex: BN
+    optionIndex: BN,
+    option?: PublicKey
   ): Promise<string> {
     const [vault] = findExoticVaultPDA(underlyingMint);
     const [priceFeed] = findPriceFeedPDA(underlyingMint);
-    const [option] = findExoticOptionPDA(
-      vault,
-      this.provider.wallet.publicKey,
-      optionIndex
-    );
+    option = option ?? findExoticOptionPDA(vault, this.provider.wallet.publicKey, optionIndex)[0];
     const [sampleBuffer] = findOptionSampleBufferPDA(option);
 
     return this.program.methods
@@ -421,20 +422,21 @@ export class ExoticVaultClient {
 
   /**
    * Claim payout after option settlement
+   *
+   * `option` is the option account. Pass it when the wallet is not the
+   * original opener (e.g. after buying and redeeming it on the secondary
+   * market); otherwise it is derived from the wallet as the opener.
    */
   async claimPayout(
     underlyingMint: PublicKey,
     collateralMint: PublicKey,
     userCollateral: PublicKey,
-    optionIndex: BN
+    optionIndex: BN,
+    option?: PublicKey
   ): Promise<string> {
     const [vault] = findExoticVaultPDA(underlyingMint);
     const [vaultCollateral] = findVaultCollateralPDA(vault);
-    const [option] = findExoticOptionPDA(
-      vault,
-      this.provider.wallet.publicKey,
-      optionIndex
-    );
+    option = option ?? findExoticOptionPDA(vault, this.provider.wallet.publicKey, optionIndex)[0];
 
     return this.program.methods
       .claimPayout()

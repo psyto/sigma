@@ -188,12 +188,8 @@ export function useFundingSwap() {
       if (!client) throw new Error("Client not ready");
 
       const sig = await sendTransaction(async (c) => {
-        return c.fundingSwap.settleSwap(
-          marketSymbol,
-          collateralMint,
-          userCollateral,
-          swapId
-        );
+        // settle_swap moves no tokens; collateral accounts are not needed
+        return c.fundingSwap.settleSwap(marketSymbol, swapId);
       });
 
       if (sig) {

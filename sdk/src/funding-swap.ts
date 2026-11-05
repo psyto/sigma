@@ -275,29 +275,55 @@ export class FundingSwapClient {
 
   /**
    * Settle a swap at expiry
+   *
+   * `swap` is the swap position account. Pass it when the wallet is not the
+   * original opener (e.g. after buying and redeeming it on the secondary
+   * market); otherwise it is derived from the wallet as the opener.
    */
   async settleSwap(
     marketSymbol: string,
-    collateralMint: PublicKey,
-    userCollateral: PublicKey,
-    swapId: BN
+    swapId: BN,
+    swap?: PublicKey
   ): Promise<string> {
     const [pool] = findFundingPoolPDA(marketSymbol);
-    const [poolVault] = findFundingPoolVaultPDA(pool);
-    const [position] = findFundingSwapPositionPDA(
-      pool,
-      this.provider.wallet.publicKey,
-      swapId
-    );
+    swap = swap ?? findFundingSwapPositionPDA(pool, this.provider.wallet.publicKey, swapId)[0];
 
     return this.program.methods
       .settleSwap()
       .accounts({
         user: this.provider.wallet.publicKey,
         pool,
-        position,
-        userCollateral,
+        swap,
+      })
+      .rpc();
+  }
+
+  /**
+   * Claim a settled swap's payout
+   *
+   * `swap` is the swap position account. Pass it when the wallet is not the
+   * original opener (e.g. after buying and redeeming it on the secondary
+   * market); otherwise it is derived from the wallet as the opener.
+   */
+  async claimPayout(
+    marketSymbol: string,
+    collateralMint: PublicKey,
+    userCollateral: PublicKey,
+    swapId: BN,
+    swap?: PublicKey
+  ): Promise<string> {
+    const [pool] = findFundingPoolPDA(marketSymbol);
+    const [poolVault] = findFundingPoolVaultPDA(pool);
+    swap = swap ?? findFundingSwapPositionPDA(pool, this.provider.wallet.publicKey, swapId)[0];
+
+    return this.program.methods
+      .claimPayout()
+      .accounts({
+        user: this.provider.wallet.publicKey,
+        pool,
+        swap,
         poolVault,
+        userCollateral,
         collateralMint,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
@@ -306,29 +332,30 @@ export class FundingSwapClient {
 
   /**
    * Close a swap position early
+   *
+   * `swap` is the swap position account. Pass it when the wallet is not the
+   * original opener (e.g. after buying and redeeming it on the secondary
+   * market); otherwise it is derived from the wallet as the opener.
    */
   async closeSwapEarly(
     marketSymbol: string,
     collateralMint: PublicKey,
     userCollateral: PublicKey,
-    swapId: BN
+    swapId: BN,
+    swap?: PublicKey
   ): Promise<string> {
     const [pool] = findFundingPoolPDA(marketSymbol);
     const [poolVault] = findFundingPoolVaultPDA(pool);
-    const [position] = findFundingSwapPositionPDA(
-      pool,
-      this.provider.wallet.publicKey,
-      swapId
-    );
+    swap = swap ?? findFundingSwapPositionPDA(pool, this.provider.wallet.publicKey, swapId)[0];
 
     return this.program.methods
       .closeSwapEarly()
       .accounts({
         user: this.provider.wallet.publicKey,
         pool,
-        position,
-        userCollateral,
+        swap,
         poolVault,
+        userCollateral,
         collateralMint,
         tokenProgram: TOKEN_PROGRAM_ID,
       })

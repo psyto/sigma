@@ -339,6 +339,16 @@ describe("Funding Swap PDA derivations", () => {
     expect(pos1.equals(pos2)).toBe(false);
   });
 
+  it("findFundingSwapPositionPDA should use the program's seeds", () => {
+    const [pool] = findFundingPoolPDA("SOL-PERP");
+    const [pos] = findFundingSwapPositionPDA(pool, testUser, new BN(3));
+    const [expected] = PublicKey.findProgramAddressSync(
+      [Buffer.from("swap"), pool.toBuffer(), testUser.toBuffer(), new BN(3).toArrayLike(Buffer, "le", 8)],
+      PROGRAM_IDS.FUNDING_SWAP
+    );
+    expect(pos.equals(expected)).toBe(true);
+  });
+
   it("findFundingSwapLpAccountPDA should derive from pool and user", () => {
     const [pool] = findFundingPoolPDA("SOL-PERP");
     const [lp, bump] = findFundingSwapLpAccountPDA(pool, testUser);

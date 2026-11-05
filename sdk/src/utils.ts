@@ -144,7 +144,7 @@ export function findFundingSwapPositionPDA(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
-      Buffer.from("swap_position"),
+      Buffer.from("swap"),
       pool.toBuffer(),
       user.toBuffer(),
       swapId.toArrayLike(Buffer, "le", 8),
