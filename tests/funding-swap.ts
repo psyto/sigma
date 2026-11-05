@@ -9,6 +9,7 @@ import {
   mintTo,
 } from "@solana/spl-token";
 import { expect } from "chai";
+import { ensureConfig } from "./helpers/config";
 
 type FundingSwap = any;
 
@@ -27,7 +28,12 @@ describe("funding-swap", () => {
   let userCollateralAccount: PublicKey;
   const marketSymbol = "SOL-PERP";
 
+  let oracleConfigPDA: PublicKey;
+  let configPDA: PublicKey;
+
   before(async () => {
+    oracleConfigPDA = await ensureConfig(oracleProgram, "oracle_config", "initializeOracleConfig");
+    configPDA = await ensureConfig(program, "config", "initializeConfig");
     collateralMint = await createMint(
       provider.connection,
       (provider.wallet as any).payer,
@@ -45,6 +51,7 @@ describe("funding-swap", () => {
       await oracleProgram.methods
         .initializeFundingFeed(marketSymbol, new BN(28800))
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           fundingFeed: fundingFeedPDA,
           systemProgram: SystemProgram.programId,
@@ -102,6 +109,7 @@ describe("funding-swap", () => {
         await program.methods
           .initializePool(poolParams)
           .accounts({
+            config: configPDA,
             authority: authority.publicKey,
             collateralMint: collateralMint,
             fundingFeed: fundingFeedPDA,

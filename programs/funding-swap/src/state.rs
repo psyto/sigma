@@ -357,3 +357,16 @@ pub struct FundingPeriodRecord {
     pub timestamp: i64,
     pub bump: u8,
 }
+
+/// Program-wide admin. Created once by the program's upgrade authority.
+#[account]
+#[derive(InitSpace)]
+pub struct FundingSwapConfig {
+    /// Admin allowed to create canonical accounts
+    pub admin: Pubkey,
+    pub bump: u8,
+}
+
+impl FundingSwapConfig {
+    pub const SEED_PREFIX: &'static [u8] = b"config";
+}

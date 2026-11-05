@@ -22,6 +22,14 @@ use errors::FundingSwapError;
 pub mod funding_swap {
     use super::*;
 
+    /// Set the program admin once. Only the program's upgrade authority may call this.
+    pub fn initialize_config(ctx: Context<InitializeConfig>, admin: Pubkey) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.admin = admin;
+        config.bump = ctx.bumps.config;
+        Ok(())
+    }
+
     /// Initialize a funding swap pool for a perpetual market
     pub fn initialize_pool(
         ctx: Context<InitializePool>,
@@ -118,8 +126,14 @@ pub struct PoolParams {
 #[derive(Accounts)]
 #[instruction(params: PoolParams)]
 pub struct InitializePool<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == config.admin @ FundingSwapError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [FundingSwapConfig::SEED_PREFIX], bump = config.bump)]
+    pub config: Account<'info, FundingSwapConfig>,
 
     pub collateral_mint: Account<'info, Mint>,
 
@@ -211,8 +225,11 @@ pub struct ProcessFundingPeriod<'info> {
     pub pool: Account<'info, FundingPool>,
 
     /// Funding feed from shared oracle
-    /// CHECK: Validated via pool.funding_feed
+    /// CHECK: Re-derived as the shared-oracle funding feed PDA for pool.market_symbol
     #[account(
+        seeds = [b"funding_feed", pool.market_symbol.as_bytes()],
+        bump,
+        seeds::program = shared_oracle::ID,
         constraint = funding_feed.key() == pool.funding_feed @ FundingSwapError::InvalidOracle
     )]
     pub funding_feed: AccountInfo<'info>,
@@ -482,4 +499,27 @@ pub struct LiquidityWithdrawn {
     pub provider: Pubkey,
     pub shares: u64,
     pub amount: u64,
+}
+
+#[derive(Accounts)]
+pub struct InitializeConfig<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + FundingSwapConfig::INIT_SPACE,
+        seeds = [FundingSwapConfig::SEED_PREFIX],
+        bump
+    )]
+    pub config: Account<'info, FundingSwapConfig>,
+
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ FundingSwapError::Unauthorized)]
+    pub program: Program<'info, crate::program::FundingSwap>,
+
+    #[account(constraint = program_data.upgrade_authority_address == Some(payer.key()) @ FundingSwapError::Unauthorized)]
+    pub program_data: Account<'info, ProgramData>,
+
+    pub system_program: Program<'info, System>,
 }
