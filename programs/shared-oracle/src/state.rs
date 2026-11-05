@@ -1124,8 +1124,11 @@ pub struct SecondaryMarket {
     /// Fee rate (bps)
     pub fee_rate_bps: u16,
 
-    /// Fee recipient
+    /// Fee recipient (wallet; fees go to its token account of quote_mint)
     pub fee_recipient: Pubkey,
+
+    /// Mint that buyers pay in
+    pub quote_mint: Pubkey,
 
     /// Whether market is active
     pub is_active: bool,

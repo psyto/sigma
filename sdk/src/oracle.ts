@@ -1,6 +1,7 @@
 import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor";
 import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
   PROGRAM_IDS,
   PriceFeed,
@@ -21,6 +22,7 @@ import {
   findPositionTokenPDA,
   findOracleConfigPDA,
   findProgramDataAddress,
+  SigmaProtocolName,
 } from "./utils";
 
 /**
@@ -443,7 +445,7 @@ export class OracleClient {
     originalPosition: PublicKey,
     positionType: "varianceSwap" | "fundingSwap" | "exoticOption"
   ): Promise<string> {
-    const [positionToken] = findPositionTokenPDA(originalProgram, originalPosition);
+    const [positionToken] = findPositionTokenPDA(originalPosition);
     const [secondaryMarket] = findSecondaryMarketPDA();
 
     const typeArg = { [positionType]: {} };
@@ -466,12 +468,15 @@ export class OracleClient {
    */
   async listPosition(
     positionToken: PublicKey,
-    price: BN
+    price: BN,
+    minPrice: BN = new BN(0),
+    listingExpiry: BN = new BN(0),
+    protocol: SigmaProtocolName = "volSwap"
   ): Promise<string> {
-    const [secondaryMarket] = findSecondaryMarketPDA();
+    const [secondaryMarket] = findSecondaryMarketPDA(protocol);
 
     return this.program.methods
-      .listPosition(price)
+      .listPosition(price, minPrice, listingExpiry)
       .accounts({
         owner: this.provider.wallet.publicKey,
         positionToken,
@@ -481,21 +486,29 @@ export class OracleClient {
   }
 
   /**
-   * Buy a listed position
+   * Buy a listed position. Pays the listing price in the market's quote mint
+   * from the wallet's associated token account to the seller's associated
+   * token account (minus the market fee, which goes to the fee recipient's).
    */
   async buyPosition(
     positionToken: PublicKey,
-    seller: PublicKey
+    protocol: SigmaProtocolName = "volSwap"
   ): Promise<string> {
-    const [secondaryMarket] = findSecondaryMarketPDA();
+    const [secondaryMarket] = findSecondaryMarketPDA(protocol);
+    const market = await (this.program.account as any).secondaryMarket.fetch(secondaryMarket);
+    const token = await (this.program.account as any).positionToken.fetch(positionToken);
+    const buyer = this.provider.wallet.publicKey;
 
     return this.program.methods
       .buyPosition()
       .accounts({
-        buyer: this.provider.wallet.publicKey,
-        seller,
+        buyer,
         positionToken,
         secondaryMarket,
+        buyerTokenAccount: getAssociatedTokenAddressSync(market.quoteMint, buyer, true),
+        sellerTokenAccount: getAssociatedTokenAddressSync(market.quoteMint, token.owner, true),
+        feeRecipientTokenAccount: getAssociatedTokenAddressSync(market.quoteMint, market.feeRecipient, true),
+        tokenProgram: TOKEN_PROGRAM_ID,
       })
       .rpc();
   }
@@ -503,11 +516,8 @@ export class OracleClient {
   /**
    * Fetch a position token account
    */
-  async getPositionToken(
-    originalProgram: PublicKey,
-    originalPosition: PublicKey
-  ): Promise<PositionToken | null> {
-    const [positionToken] = findPositionTokenPDA(originalProgram, originalPosition);
+  async getPositionToken(originalPosition: PublicKey): Promise<PositionToken | null> {
+    const [positionToken] = findPositionTokenPDA(originalPosition);
     try {
       return await (this.program.account as any).positionToken.fetch(positionToken) as unknown as PositionToken;
     } catch {

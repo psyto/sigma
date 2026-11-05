@@ -172,4 +172,7 @@ pub enum OracleError {
 
     #[msg("Listing has expired")]
     ListingExpired,
+
+    #[msg("Fee rate exceeds 100%")]
+    InvalidFeeRate,
 }

@@ -259,16 +259,17 @@ describe("Oracle PDA derivations", () => {
     expect(bump).toBeGreaterThanOrEqual(0);
   });
 
-  it("findSecondaryMarketPDA should return a consistent address", () => {
-    const [pda1] = findSecondaryMarketPDA();
-    const [pda2] = findSecondaryMarketPDA();
+  it("findSecondaryMarketPDA should return a consistent address per protocol", () => {
+    const [pda1] = findSecondaryMarketPDA("volSwap");
+    const [pda2] = findSecondaryMarketPDA("volSwap");
+    const [pda3] = findSecondaryMarketPDA("fundingSwap");
     expect(pda1.equals(pda2)).toBe(true);
+    expect(pda1.equals(pda3)).toBe(false);
   });
 
-  it("findPositionTokenPDA should derive from program and position", () => {
-    const program = PROGRAM_IDS.VOLSWAP;
+  it("findPositionTokenPDA should derive from the position", () => {
     const position = PublicKey.unique();
-    const [pda, bump] = findPositionTokenPDA(program, position);
+    const [pda, bump] = findPositionTokenPDA(position);
     expect(pda).toBeInstanceOf(PublicKey);
     expect(bump).toBeGreaterThanOrEqual(0);
   });

@@ -48,23 +48,28 @@ export function findCexFundingFeedPDA(marketSymbol: string): [PublicKey, number]
   );
 }
 
-export function findSecondaryMarketPDA(): [PublicKey, number] {
+export type SigmaProtocolName = "volSwap" | "fundingSwap" | "exoticVault";
+
+const SECONDARY_MARKET_SEEDS: Record<SigmaProtocolName, string> = {
+  volSwap: "volswap_________",
+  fundingSwap: "fundingswap_____",
+  exoticVault: "exoticvault_____",
+};
+
+/** Secondary market PDA: ["secondary_market", 16-byte protocol seed] */
+export function findSecondaryMarketPDA(
+  protocol: SigmaProtocolName = "volSwap"
+): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("secondary_market")],
+    [Buffer.from("secondary_market"), Buffer.from(SECONDARY_MARKET_SEEDS[protocol])],
     PROGRAM_IDS.SHARED_ORACLE
   );
 }
 
-export function findPositionTokenPDA(
-  originalProgram: PublicKey,
-  originalPosition: PublicKey
-): [PublicKey, number] {
+/** Position token PDA: ["position_token", original position account] */
+export function findPositionTokenPDA(originalPosition: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [
-      Buffer.from("position_token"),
-      originalProgram.toBuffer(),
-      originalPosition.toBuffer(),
-    ],
+    [Buffer.from("position_token"), originalPosition.toBuffer()],
     PROGRAM_IDS.SHARED_ORACLE
   );
 }

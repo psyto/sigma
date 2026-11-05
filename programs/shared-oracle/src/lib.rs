@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 declare_id!("81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o");
 
@@ -457,6 +458,7 @@ pub mod shared_oracle {
         protocol: SigmaProtocol,
         fee_rate_bps: u16,
     ) -> Result<()> {
+        require!(fee_rate_bps <= 10_000, OracleError::InvalidFeeRate);
         let market = &mut ctx.accounts.secondary_market;
 
         market.authority = ctx.accounts.authority.key();
@@ -466,6 +468,7 @@ pub mod shared_oracle {
         market.total_trades = 0;
         market.fee_rate_bps = fee_rate_bps;
         market.fee_recipient = ctx.accounts.fee_recipient.key();
+        market.quote_mint = ctx.accounts.quote_mint.key();
         market.is_active = true;
         market.bump = ctx.bumps.secondary_market;
 
@@ -560,34 +563,62 @@ pub mod shared_oracle {
 
     /// Buy a listed position
     pub fn buy_position(ctx: Context<BuyPosition>) -> Result<()> {
+        require!(ctx.accounts.position_token.is_listed, OracleError::NotListed);
+        require!(ctx.accounts.position_token.is_active, OracleError::PositionInactive);
+
+        let price = ctx.accounts.position_token.listing_price;
+        let fee = (price as u128 * ctx.accounts.secondary_market.fee_rate_bps as u128 / 10_000) as u64;
+        let to_seller = price - fee;
+
+        // Pay the seller (and the market fee) in the market's quote mint
+        if to_seller > 0 {
+            token::transfer(
+                CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.buyer_token_account.to_account_info(),
+                        to: ctx.accounts.seller_token_account.to_account_info(),
+                        authority: ctx.accounts.buyer.to_account_info(),
+                    },
+                ),
+                to_seller,
+            )?;
+        }
+        if fee > 0 {
+            token::transfer(
+                CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.buyer_token_account.to_account_info(),
+                        to: ctx.accounts.fee_recipient_token_account.to_account_info(),
+                        authority: ctx.accounts.buyer.to_account_info(),
+                    },
+                ),
+                fee,
+            )?;
+        }
+
+        let position_token_key = ctx.accounts.position_token.key();
         let token = &mut ctx.accounts.position_token;
         let market = &mut ctx.accounts.secondary_market;
-        let _clock = Clock::get()?;
-
-        require!(token.is_listed, OracleError::NotListed);
-        require!(token.is_active, OracleError::PositionInactive);
-
-        let price = token.listing_price;
 
         // Transfer ownership
         token.owner = ctx.accounts.buyer.key();
         token.is_listed = false;
         token.listing_price = 0;
+        token.min_price = 0;
 
         // Update market stats
-        market.total_volume += price;
+        market.total_volume = market.total_volume.saturating_add(price);
         market.total_trades += 1;
 
         // Deactivate listing
-        if let Some(idx) = market.listings.iter().position(|l| l.position_token == ctx.accounts.position_token.key()) {
+        if let Some(idx) = market.listings.iter().position(|l| l.position_token == position_token_key && l.is_active) {
             market.listings[idx].is_active = false;
         }
 
-        // Note: Actual USDC transfer would be handled in a separate instruction
-        // or through CPI to token program
-
         emit!(PositionSold {
-            position_token: ctx.accounts.position_token.key(),
+            position_token: position_token_key,
             buyer: ctx.accounts.buyer.key(),
             price,
         });
@@ -1068,8 +1099,11 @@ pub struct InitializeSecondaryMarket<'info> {
     #[account(seeds = [OracleConfig::SEED_PREFIX], bump = oracle_config.bump)]
     pub oracle_config: Account<'info, OracleConfig>,
 
-    /// CHECK: Fee recipient account
+    /// CHECK: Fee recipient wallet; fees are paid to its token account of quote_mint
     pub fee_recipient: AccountInfo<'info>,
+
+    /// Mint that buyers pay in
+    pub quote_mint: Account<'info, Mint>,
 
     #[account(
         init,
@@ -1149,7 +1183,8 @@ pub struct BuyPosition<'info> {
     #[account(
         mut,
         constraint = position_token.is_listed @ OracleError::NotListed,
-        constraint = position_token.is_active @ OracleError::PositionInactive
+        constraint = position_token.is_active @ OracleError::PositionInactive,
+        constraint = position_token.protocol == secondary_market.protocol @ OracleError::ProtocolMismatch
     )]
     pub position_token: Account<'info, PositionToken>,
 
@@ -1159,7 +1194,30 @@ pub struct BuyPosition<'info> {
     )]
     pub secondary_market: Account<'info, SecondaryMarket>,
 
-    // Note: In production, would include token accounts for USDC transfer
+    #[account(
+        mut,
+        token::mint = secondary_market.quote_mint,
+        token::authority = buyer
+    )]
+    pub buyer_token_account: Account<'info, TokenAccount>,
+
+    /// Seller's (current owner's) account of the quote mint
+    #[account(
+        mut,
+        token::mint = secondary_market.quote_mint,
+        token::authority = position_token.owner
+    )]
+    pub seller_token_account: Account<'info, TokenAccount>,
+
+    /// Fee recipient's account of the quote mint
+    #[account(
+        mut,
+        token::mint = secondary_market.quote_mint,
+        token::authority = secondary_market.fee_recipient
+    )]
+    pub fee_recipient_token_account: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
