@@ -72,6 +72,27 @@ export class VolswapClient {
   }
 
   /**
+   * Propose a new admin (the wallet must be the current admin).
+   * Pass PublicKey.default to cancel a pending proposal.
+   */
+  async setAdmin(newAdmin: PublicKey): Promise<string> {
+    return this.program.methods
+      .setAdmin(newAdmin)
+      .accounts({ admin: this.provider.wallet.publicKey, config: findVolswapConfigPDA()[0] })
+      .rpc();
+  }
+
+  /**
+   * Accept a pending admin proposal (the wallet must be the proposed admin).
+   */
+  async acceptAdmin(): Promise<string> {
+    return this.program.methods
+      .acceptAdmin()
+      .accounts({ newAdmin: this.provider.wallet.publicKey, config: findVolswapConfigPDA()[0] })
+      .rpc();
+  }
+
+  /**
    * Initialize a new variance swap pool
    */
   async initializePool(

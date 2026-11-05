@@ -1091,4 +1091,65 @@ describe("shared-oracle", () => {
       expect(token.isListed).to.be.false;
     });
   });
+  // ============================================================================
+  // Admin handover
+  // ============================================================================
+
+  describe("Admin handover", () => {
+    it("should hand the admin over in two steps and back", async () => {
+      const next = Keypair.generate();
+      const sig = await provider.connection.requestAirdrop(next.publicKey, 1_000_000_000);
+      await provider.connection.confirmTransaction(sig);
+
+      // A non-admin cannot propose
+      try {
+        await program.methods
+          .setAdmin(next.publicKey)
+          .accounts({ admin: next.publicKey, config: oracleConfigPDA })
+          .signers([next])
+          .rpc();
+        expect.fail("non-admin set_admin should fail");
+      } catch (e: any) {
+        expect(e.toString()).to.include("Unauthorized");
+      }
+
+      await program.methods
+        .setAdmin(next.publicKey)
+        .accounts({ admin: authority.publicKey, config: oracleConfigPDA })
+        .rpc();
+
+      // Only the proposed key can accept
+      try {
+        await program.methods
+          .acceptAdmin()
+          .accounts({ newAdmin: authority.publicKey, config: oracleConfigPDA })
+          .rpc();
+        expect.fail("accept by a non-proposed key should fail");
+      } catch (e: any) {
+        expect(e.toString()).to.include("Unauthorized");
+      }
+
+      await program.methods
+        .acceptAdmin()
+        .accounts({ newAdmin: next.publicKey, config: oracleConfigPDA })
+        .signers([next])
+        .rpc();
+      let config = await program.account.oracleConfig.fetch(oracleConfigPDA);
+      expect(config.admin.toString()).to.equal(next.publicKey.toString());
+
+      // Hand it back so the rest of the suite keeps the provider wallet as admin
+      await program.methods
+        .setAdmin(authority.publicKey)
+        .accounts({ admin: next.publicKey, config: oracleConfigPDA })
+        .signers([next])
+        .rpc();
+      await program.methods
+        .acceptAdmin()
+        .accounts({ newAdmin: authority.publicKey, config: oracleConfigPDA })
+        .rpc();
+      config = await program.account.oracleConfig.fetch(oracleConfigPDA);
+      expect(config.admin.toString()).to.equal(authority.publicKey.toString());
+      expect(config.pendingAdmin.toString()).to.equal(PublicKey.default.toString());
+    });
+  });
 });

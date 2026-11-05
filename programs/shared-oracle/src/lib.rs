@@ -27,7 +27,22 @@ pub mod shared_oracle {
     pub fn initialize_oracle_config(ctx: Context<InitializeOracleConfig>, admin: Pubkey) -> Result<()> {
         let config = &mut ctx.accounts.config;
         config.admin = admin;
+        config.pending_admin = Pubkey::default();
         config.bump = ctx.bumps.config;
+        Ok(())
+    }
+
+    /// Propose a new admin (current admin signs). Pubkey::default() cancels a proposal.
+    pub fn set_admin(ctx: Context<SetAdmin>, new_admin: Pubkey) -> Result<()> {
+        ctx.accounts.config.pending_admin = new_admin;
+        Ok(())
+    }
+
+    /// Accept a pending admin proposal (the proposed admin signs).
+    pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.admin = config.pending_admin;
+        config.pending_admin = Pubkey::default();
         Ok(())
     }
 
@@ -1239,4 +1254,25 @@ pub struct InitializeOracleConfig<'info> {
     pub program_data: Account<'info, ProgramData>,
 
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetAdmin<'info> {
+    #[account(constraint = admin.key() == config.admin @ OracleError::Unauthorized)]
+    pub admin: Signer<'info>,
+
+    #[account(mut, seeds = [OracleConfig::SEED_PREFIX], bump = config.bump)]
+    pub config: Account<'info, OracleConfig>,
+}
+
+#[derive(Accounts)]
+pub struct AcceptAdmin<'info> {
+    #[account(
+        constraint = config.pending_admin != Pubkey::default() @ OracleError::Unauthorized,
+        constraint = new_admin.key() == config.pending_admin @ OracleError::Unauthorized
+    )]
+    pub new_admin: Signer<'info>,
+
+    #[account(mut, seeds = [OracleConfig::SEED_PREFIX], bump = config.bump)]
+    pub config: Account<'info, OracleConfig>,
 }

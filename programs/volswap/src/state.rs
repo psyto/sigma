@@ -384,6 +384,8 @@ pub struct EpochRecord {
 pub struct VolswapConfig {
     /// Admin allowed to create canonical accounts
     pub admin: Pubkey,
+    /// Proposed next admin (Pubkey::default() = none); takes effect on accept_admin
+    pub pending_admin: Pubkey,
     pub bump: u8,
 }
 

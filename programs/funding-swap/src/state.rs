@@ -364,6 +364,8 @@ pub struct FundingPeriodRecord {
 pub struct FundingSwapConfig {
     /// Admin allowed to create canonical accounts
     pub admin: Pubkey,
+    /// Proposed next admin (Pubkey::default() = none); takes effect on accept_admin
+    pub pending_admin: Pubkey,
     pub bump: u8,
 }
 
