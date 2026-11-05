@@ -480,6 +480,7 @@ describe("shared-oracle", () => {
           .initializeVolatilityIndex(indexName, durationDays, impliedWeight)
           .accounts({
             authority: authority.publicKey,
+            oracleConfig: oracleConfigPDA,
             priceFeed: priceFeedPDA,
             varianceTracker: varianceTrackerPDA,
             volatilityIndex: volatilityIndexPDA,
@@ -561,6 +562,7 @@ describe("shared-oracle", () => {
           .initializeCexFundingFeed(marketSymbol, aggregationMethod)
           .accounts({
             authority: authority.publicKey,
+            oracleConfig: oracleConfigPDA,
             cexFundingFeed: cexFundingFeedPDA,
             systemProgram: SystemProgram.programId,
           })
@@ -572,6 +574,31 @@ describe("shared-oracle", () => {
       } catch (e) {
         console.log("Initialize CEX funding feed error:", e);
         throw e;
+      }
+    });
+
+    it("should reject CEX funding feed init by a non-admin", async () => {
+      const outsider = Keypair.generate();
+      const sig = await provider.connection.requestAirdrop(outsider.publicKey, 1_000_000_000);
+      await provider.connection.confirmTransaction(sig);
+      const [otherFeed] = PublicKey.findProgramAddressSync(
+        [Buffer.from("cex_funding_feed"), Buffer.from("ETH-PERP")],
+        program.programId
+      );
+      try {
+        await program.methods
+          .initializeCexFundingFeed("ETH-PERP", { mean: {} })
+          .accounts({
+            authority: outsider.publicKey,
+            oracleConfig: oracleConfigPDA,
+            cexFundingFeed: otherFeed,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([outsider])
+          .rpc();
+        expect.fail("non-admin init should fail");
+      } catch (e: any) {
+        expect(e.toString()).to.include("Unauthorized");
       }
     });
 
@@ -649,6 +676,7 @@ describe("shared-oracle", () => {
           .initializeSecondaryMarket(protocol, feeRateBps)
           .accounts({
             authority: authority.publicKey,
+            oracleConfig: oracleConfigPDA,
             feeRecipient: feeRecipient.publicKey,
             secondaryMarket: secondaryMarketPDA,
             systemProgram: SystemProgram.programId,

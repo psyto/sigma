@@ -286,13 +286,26 @@ export class OracleClient {
   /**
    * Initialize a volatility index
    */
-  async initializeVolatilityIndex(name: string): Promise<string> {
-    const [volatilityIndex] = findVolatilityIndexPDA(name);
+  async initializeVolatilityIndex(
+    priceFeed: PublicKey,
+    name: string,
+    durationDays: number,
+    impliedWeight: number
+  ): Promise<string> {
+    // Program seeds: ["volatility_index", price_feed, index_name]
+    const [volatilityIndex] = PublicKey.findProgramAddressSync(
+      [Buffer.from("volatility_index"), priceFeed.toBuffer(), Buffer.from(name)],
+      PROGRAM_IDS.SHARED_ORACLE
+    );
+    const [varianceTracker] = findVarianceTrackerPDA(priceFeed);
 
     return this.program.methods
-      .initializeVolatilityIndex(name)
+      .initializeVolatilityIndex(name, durationDays, impliedWeight)
       .accounts({
         authority: this.provider.wallet.publicKey,
+        oracleConfig: findOracleConfigPDA()[0],
+        priceFeed,
+        varianceTracker,
         volatilityIndex,
         systemProgram: SystemProgram.programId,
       })
@@ -368,13 +381,17 @@ export class OracleClient {
   /**
    * Initialize a CEX funding feed
    */
-  async initializeCexFundingFeed(marketSymbol: string): Promise<string> {
+  async initializeCexFundingFeed(
+    marketSymbol: string,
+    aggregationMethod: object = { mean: {} }
+  ): Promise<string> {
     const [cexFundingFeed] = findCexFundingFeedPDA(marketSymbol);
 
     return this.program.methods
-      .initializeCexFundingFeed(marketSymbol)
+      .initializeCexFundingFeed(marketSymbol, aggregationMethod)
       .accounts({
         authority: this.provider.wallet.publicKey,
+        oracleConfig: findOracleConfigPDA()[0],
         cexFundingFeed,
         systemProgram: SystemProgram.programId,
       })

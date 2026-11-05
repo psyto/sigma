@@ -800,8 +800,14 @@ pub struct UpdateFundingFeed<'info> {
 #[derive(Accounts)]
 #[instruction(asset_symbol: String)]
 pub struct InitializeAggregatedFeed<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == oracle_config.admin @ OracleError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [OracleConfig::SEED_PREFIX], bump = oracle_config.bump)]
+    pub oracle_config: Account<'info, OracleConfig>,
 
     #[account(
         init,
@@ -921,8 +927,14 @@ pub struct StartNewVarianceEpoch<'info> {
 #[derive(Accounts)]
 #[instruction(index_name: String)]
 pub struct InitializeVolatilityIndex<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == oracle_config.admin @ OracleError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [OracleConfig::SEED_PREFIX], bump = oracle_config.bump)]
+    pub oracle_config: Account<'info, OracleConfig>,
 
     pub price_feed: Account<'info, PriceFeed>,
 
@@ -979,8 +991,14 @@ pub struct SetImpliedVolatility<'info> {
 #[derive(Accounts)]
 #[instruction(market_symbol: String)]
 pub struct InitializeCexFundingFeed<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == oracle_config.admin @ OracleError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [OracleConfig::SEED_PREFIX], bump = oracle_config.bump)]
+    pub oracle_config: Account<'info, OracleConfig>,
 
     #[account(
         init,
@@ -1026,8 +1044,14 @@ pub struct UpdateExchangeFunding<'info> {
 #[derive(Accounts)]
 #[instruction(protocol: SigmaProtocol)]
 pub struct InitializeSecondaryMarket<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == oracle_config.admin @ OracleError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [OracleConfig::SEED_PREFIX], bump = oracle_config.bump)]
+    pub oracle_config: Account<'info, OracleConfig>,
 
     /// CHECK: Fee recipient account
     pub fee_recipient: AccountInfo<'info>,

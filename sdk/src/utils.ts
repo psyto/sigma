@@ -43,7 +43,7 @@ export function findVolatilityIndexPDA(name: string): [PublicKey, number] {
 
 export function findCexFundingFeedPDA(marketSymbol: string): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("cex_funding"), Buffer.from(marketSymbol)],
+    [Buffer.from("cex_funding_feed"), Buffer.from(marketSymbol)],
     PROGRAM_IDS.SHARED_ORACLE
   );
 }
