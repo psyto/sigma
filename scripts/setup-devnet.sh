@@ -66,6 +66,65 @@ echo "  USDC: $USDC_MINT (devnet)"
 echo ""
 
 # ---------------------------------------------------------------------------
+# 0. Create admin config PDAs (must exist before any feed / pool / vault init)
+# ---------------------------------------------------------------------------
+# Each initialize_*_config call must be signed by the program's upgrade
+# authority (the wallet that ran deploy-devnet.sh). The wallet becomes admin.
+echo "[0/5] Creating admin config PDAs (shared_oracle, volswap, funding_swap, exotic_vault)..."
+echo ""
+
+npx ts-node -e "
+const anchor = require('@coral-xyz/anchor');
+const { PublicKey, SystemProgram } = require('@solana/web3.js');
+
+const BPF_UPGRADEABLE_LOADER = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
+
+async function ensureConfig(provider, idlName, seed, method) {
+  const idl = JSON.parse(require('fs').readFileSync('target/idl/' + idlName + '.json', 'utf8'));
+  const program = new anchor.Program(idl, provider);
+  const [config] = PublicKey.findProgramAddressSync([Buffer.from(seed)], program.programId);
+  if (await provider.connection.getAccountInfo(config)) {
+    console.log('  [OK] ' + idlName + ' config already exists');
+    return;
+  }
+  const [programData] = PublicKey.findProgramAddressSync(
+    [program.programId.toBuffer()],
+    BPF_UPGRADEABLE_LOADER
+  );
+  await program.methods[method](provider.wallet.publicKey)
+    .accounts({
+      payer: provider.wallet.publicKey,
+      config,
+      program: program.programId,
+      programData,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+  console.log('  [OK] ' + idlName + ' config initialized (admin = wallet)');
+}
+
+async function run() {
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+  const targets = [
+    ['shared_oracle', 'oracle_config', 'initializeOracleConfig'],
+    ['volswap', 'config', 'initializeConfig'],
+    ['funding_swap', 'config', 'initializeConfig'],
+    ['exotic_vault', 'config', 'initializeConfig'],
+  ];
+  for (const [idlName, seed, method] of targets) {
+    try {
+      await ensureConfig(provider, idlName, seed, method);
+    } catch (e) {
+      console.log('  [ERR] ' + idlName + ': ' + (e.message || e).toString().slice(0, 120));
+    }
+  }
+}
+run();
+" 2>&1 || echo "  [SKIP] Failed - ensure programs are deployed and IDLs are built"
+echo ""
+
+# ---------------------------------------------------------------------------
 # 1. Create shared-oracle SOL price feed
 # ---------------------------------------------------------------------------
 echo "[1/5] Creating shared-oracle SOL price feed..."
@@ -98,6 +157,10 @@ async function run() {
     [Buffer.from('sample_buffer'), priceFeed.toBuffer()],
     program.programId
   );
+  const [oracleConfig] = PublicKey.findProgramAddressSync(
+    [Buffer.from('oracle_config')],
+    program.programId
+  );
 
   try {
     const existing = await provider.connection.getAccountInfo(priceFeed);
@@ -109,6 +172,7 @@ async function run() {
       .initializePriceFeed('SOL', new anchor.BN(60), 100)
       .accounts({
         authority: provider.wallet.publicKey,
+        oracleConfig,
         assetMint: SOL_MINT,
         priceFeed,
         sampleBuffer,
@@ -168,6 +232,10 @@ async function run() {
     program.programId
   );
 
+  const [config] = PublicKey.findProgramAddressSync(
+    [Buffer.from('config')],
+    program.programId
+  );
   try {
     const existing = await provider.connection.getAccountInfo(pool);
     if (existing) {
@@ -187,6 +255,7 @@ async function run() {
       .initializePool(params)
       .accounts({
         authority: provider.wallet.publicKey,
+        config,
         collateralMint: USDC_MINT,
         underlyingMint: SOL_MINT,
         priceFeed,
@@ -245,6 +314,10 @@ async function run() {
     program.programId
   );
 
+  const [config] = PublicKey.findProgramAddressSync(
+    [Buffer.from('config')],
+    program.programId
+  );
   try {
     const existing = await provider.connection.getAccountInfo(pool);
     if (existing) {
@@ -265,6 +338,7 @@ async function run() {
       .initializePool(params)
       .accounts({
         authority: provider.wallet.publicKey,
+        config,
         collateralMint: USDC_MINT,
         fundingFeed,
         pool,
@@ -322,6 +396,10 @@ async function run() {
     program.programId
   );
 
+  const [config] = PublicKey.findProgramAddressSync(
+    [Buffer.from('config')],
+    program.programId
+  );
   try {
     const existing = await provider.connection.getAccountInfo(vault);
     if (existing) {
@@ -340,6 +418,7 @@ async function run() {
       .initializeVault(params)
       .accounts({
         authority: provider.wallet.publicKey,
+        config,
         collateralMint: USDC_MINT,
         underlyingMint: SOL_MINT,
         priceFeed,

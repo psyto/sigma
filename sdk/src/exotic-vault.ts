@@ -16,6 +16,8 @@ import {
   findOptionSampleBufferPDA,
   findExoticVaultLpAccountPDA,
   findPriceFeedPDA,
+  findExoticVaultConfigPDA,
+  findProgramDataAddress,
 } from "./utils";
 
 export interface VaultParams {
@@ -52,6 +54,24 @@ export class ExoticVaultClient {
   // ============================================================================
 
   /**
+   * Create the program's admin config (once). The wallet must be the program's
+   * upgrade authority; `admin` may then create the gated accounts.
+   */
+  async initializeConfig(admin: PublicKey): Promise<string> {
+    const [config] = findExoticVaultConfigPDA();
+    return this.program.methods
+      .initializeConfig(admin)
+      .accounts({
+        payer: this.provider.wallet.publicKey,
+        config,
+        program: PROGRAM_IDS.EXOTIC_VAULT,
+        programData: findProgramDataAddress(PROGRAM_IDS.EXOTIC_VAULT),
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+  }
+
+  /**
    * Initialize a new exotic options vault
    */
   async initializeVault(
@@ -67,6 +87,7 @@ export class ExoticVaultClient {
       .initializeVault(params)
       .accounts({
         authority: this.provider.wallet.publicKey,
+        config: findExoticVaultConfigPDA()[0],
         collateralMint,
         underlyingMint,
         priceFeed,

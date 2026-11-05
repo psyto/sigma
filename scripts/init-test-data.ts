@@ -102,6 +102,41 @@ function findVaultCollateralPDA(vault: PublicKey): [PublicKey, number] {
   );
 }
 
+const BPF_UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+
+/** Create a program's admin config PDA if missing (payer must be the upgrade authority). */
+async function ensureConfig(
+  program: Program,
+  seed: string,
+  method: string,
+  payer: PublicKey
+): Promise<PublicKey> {
+  const [config] = PublicKey.findProgramAddressSync([Buffer.from(seed)], program.programId);
+  if (await program.provider.connection.getAccountInfo(config)) {
+    console.log(`  [OK] ${program.programId.toString().slice(0, 8)}... config already exists`);
+    return config;
+  }
+  const [programData] = PublicKey.findProgramAddressSync(
+    [program.programId.toBuffer()],
+    BPF_UPGRADEABLE_LOADER
+  );
+  try {
+    await (program.methods as any)[method](payer)
+      .accounts({
+        payer,
+        config,
+        program: program.programId,
+        programData,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    console.log(`  [OK] ${program.programId.toString().slice(0, 8)}... config initialized`);
+  } catch (error: any) {
+    console.log(`  [ERR] config ${seed}: ${error.message?.slice(0, 80) || error}`);
+  }
+  return config;
+}
+
 async function main() {
   console.log("Initializing test data on localnet...\n");
 
@@ -129,6 +164,18 @@ async function main() {
   const volswapProgram = new Program(volswapIdl, provider);
   const fundingSwapProgram = new Program(fundingSwapIdl, provider);
   const exoticVaultProgram = new Program(exoticVaultIdl, provider);
+
+  // ============================================================================
+  // 0. Admin config PDAs (must exist before any feed / pool / vault init).
+  //    Signed by the programs' upgrade authority (this wallet), which becomes admin.
+  // ============================================================================
+  console.log("Initializing admin configs...");
+
+  const oracleConfigPDA = await ensureConfig(oracleProgram, "oracle_config", "initializeOracleConfig", wallet.publicKey);
+  const volswapConfigPDA = await ensureConfig(volswapProgram, "config", "initializeConfig", wallet.publicKey);
+  const fundingSwapConfigPDA = await ensureConfig(fundingSwapProgram, "config", "initializeConfig", wallet.publicKey);
+  const exoticVaultConfigPDA = await ensureConfig(exoticVaultProgram, "config", "initializeConfig", wallet.publicKey);
+  console.log("");
 
   // ============================================================================
   // 1. Initialize Oracle Price Feeds
@@ -161,6 +208,7 @@ async function main() {
         )
         .accounts({
           authority: wallet.publicKey,
+          oracleConfig: oracleConfigPDA,
           assetMint: asset.mint,
           priceFeed,
           sampleBuffer,
@@ -229,6 +277,7 @@ async function main() {
         )
         .accounts({
           authority: wallet.publicKey,
+          oracleConfig: oracleConfigPDA,
           fundingFeed,
           systemProgram: SystemProgram.programId,
         })
@@ -288,6 +337,7 @@ async function main() {
         )
         .accounts({
           authority: wallet.publicKey,
+          oracleConfig: oracleConfigPDA,
           priceFeed,
           varianceTracker,
           systemProgram: SystemProgram.programId,
@@ -330,6 +380,7 @@ async function main() {
         .initializePool(params)
         .accounts({
           authority: wallet.publicKey,
+          config: volswapConfigPDA,
           collateralMint: USDC_MINT,
           underlyingMint: SOL_MINT,
           priceFeed,
@@ -377,6 +428,7 @@ async function main() {
         .initializePool(params)
         .accounts({
           authority: wallet.publicKey,
+          config: fundingSwapConfigPDA,
           collateralMint: USDC_MINT,
           fundingFeed,
           pool,
@@ -420,6 +472,7 @@ async function main() {
         .initializeVault(params)
         .accounts({
           authority: wallet.publicKey,
+          config: exoticVaultConfigPDA,
           collateralMint: USDC_MINT,
           underlyingMint: SOL_MINT,
           priceFeed,

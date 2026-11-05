@@ -261,3 +261,29 @@ export function fundingRateToAPR(rate8h: number): number {
   // 3 funding periods per day * 365 days
   return rate8h * 3 * 365;
 }
+
+// ============================================================================
+// Admin config PDAs (created once by each program's upgrade authority)
+// ============================================================================
+
+const BPF_UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+
+export function findProgramDataAddress(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync([programId.toBuffer()], BPF_UPGRADEABLE_LOADER)[0];
+}
+
+export function findOracleConfigPDA(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("oracle_config")], PROGRAM_IDS.SHARED_ORACLE);
+}
+
+export function findVolswapConfigPDA(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("config")], PROGRAM_IDS.VOLSWAP);
+}
+
+export function findFundingSwapConfigPDA(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("config")], PROGRAM_IDS.FUNDING_SWAP);
+}
+
+export function findExoticVaultConfigPDA(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("config")], PROGRAM_IDS.EXOTIC_VAULT);
+}

@@ -19,6 +19,8 @@ import {
   findCexFundingFeedPDA,
   findSecondaryMarketPDA,
   findPositionTokenPDA,
+  findOracleConfigPDA,
+  findProgramDataAddress,
 } from "./utils";
 
 /**
@@ -49,6 +51,24 @@ export class OracleClient {
   /**
    * Initialize a new price feed
    */
+  /**
+   * Create the program's admin config (once). The wallet must be the program's
+   * upgrade authority; `admin` may then create the gated accounts.
+   */
+  async initializeOracleConfig(admin: PublicKey): Promise<string> {
+    const [config] = findOracleConfigPDA();
+    return this.program.methods
+      .initializeOracleConfig(admin)
+      .accounts({
+        payer: this.provider.wallet.publicKey,
+        config,
+        program: PROGRAM_IDS.SHARED_ORACLE,
+        programData: findProgramDataAddress(PROGRAM_IDS.SHARED_ORACLE),
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+  }
+
   async initializePriceFeed(
     assetMint: PublicKey,
     symbol: string,
@@ -62,6 +82,7 @@ export class OracleClient {
       .initializePriceFeed(symbol, sampleInterval, maxSamples)
       .accounts({
         authority: this.provider.wallet.publicKey,
+        oracleConfig: findOracleConfigPDA()[0],
         assetMint,
         priceFeed,
         sampleBuffer,
@@ -139,6 +160,7 @@ export class OracleClient {
       .initializeFundingFeed(marketSymbol, fundingInterval)
       .accounts({
         authority: this.provider.wallet.publicKey,
+        oracleConfig: findOracleConfigPDA()[0],
         fundingFeed,
         systemProgram: SystemProgram.programId,
       })
@@ -204,6 +226,7 @@ export class OracleClient {
       .initializeVarianceTracker(epochDuration)
       .accounts({
         authority: this.provider.wallet.publicKey,
+        oracleConfig: findOracleConfigPDA()[0],
         priceFeed,
         varianceTracker,
         systemProgram: SystemProgram.programId,

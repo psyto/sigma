@@ -14,6 +14,8 @@ import {
   findFundingSwapPositionPDA,
   findFundingSwapLpAccountPDA,
   findFundingFeedPDA,
+  findFundingSwapConfigPDA,
+  findProgramDataAddress,
 } from "./utils";
 
 export interface FundingPoolParams {
@@ -49,6 +51,24 @@ export class FundingSwapClient {
   // ============================================================================
 
   /**
+   * Create the program's admin config (once). The wallet must be the program's
+   * upgrade authority; `admin` may then create the gated accounts.
+   */
+  async initializeConfig(admin: PublicKey): Promise<string> {
+    const [config] = findFundingSwapConfigPDA();
+    return this.program.methods
+      .initializeConfig(admin)
+      .accounts({
+        payer: this.provider.wallet.publicKey,
+        config,
+        program: PROGRAM_IDS.FUNDING_SWAP,
+        programData: findProgramDataAddress(PROGRAM_IDS.FUNDING_SWAP),
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+  }
+
+  /**
    * Initialize a new funding swap pool
    */
   async initializePool(
@@ -64,6 +84,7 @@ export class FundingSwapClient {
       .initializePool(marketSymbol, params)
       .accounts({
         authority: this.provider.wallet.publicKey,
+        config: findFundingSwapConfigPDA()[0],
         collateralMint,
         fundingFeed,
         pool,

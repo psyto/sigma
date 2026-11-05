@@ -15,6 +15,8 @@ import {
   findVolswapLpAccountPDA,
   findPriceFeedPDA,
   findVarianceTrackerPDA,
+  findVolswapConfigPDA,
+  findProgramDataAddress,
 } from "./utils";
 
 export interface PoolParams {
@@ -52,6 +54,24 @@ export class VolswapClient {
   // ============================================================================
 
   /**
+   * Create the program's admin config (once). The wallet must be the program's
+   * upgrade authority; `admin` may then create the gated accounts.
+   */
+  async initializeConfig(admin: PublicKey): Promise<string> {
+    const [config] = findVolswapConfigPDA();
+    return this.program.methods
+      .initializeConfig(admin)
+      .accounts({
+        payer: this.provider.wallet.publicKey,
+        config,
+        program: PROGRAM_IDS.VOLSWAP,
+        programData: findProgramDataAddress(PROGRAM_IDS.VOLSWAP),
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+  }
+
+  /**
    * Initialize a new variance swap pool
    */
   async initializePool(
@@ -68,6 +88,7 @@ export class VolswapClient {
       .initializePool(params)
       .accounts({
         authority: this.provider.wallet.publicKey,
+        config: findVolswapConfigPDA()[0],
         collateralMint,
         underlyingMint,
         priceFeed,
@@ -331,6 +352,7 @@ export class VolswapClient {
       .accounts({
         authority: this.provider.wallet.publicKey,
         pool,
+        priceFeed: poolData.priceFeed,
         varianceTracker: poolData.varianceTracker,
       })
       .rpc();
