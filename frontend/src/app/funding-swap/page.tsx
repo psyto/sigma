@@ -42,6 +42,10 @@ export default function FundingSwapPage() {
   const currentFundingRate = primaryPool ? primaryPool.fixedRatePercent / 100 : 0.0105;
   const avgFundingRate = currentFundingRate * 0.93; // Simplified
   const fixedRate = swapSide === "receiver" ? currentFundingRate * 0.8 : currentFundingRate * 1.2;
+  // The on-chain term is durationPeriods × the pool's funding period
+  const periodSeconds = primaryPool ? Number(primaryPool.fundingPeriodSeconds.toString()) : 8 * 3600;
+  const durationPeriods = Math.max(1, Math.round((parseInt(duration) * 86400) / periodSeconds));
+  const durationTooLong = !!primaryPool && durationPeriods > primaryPool.maxDurationPeriods;
 
   const handleOpenSwap = async () => {
     if (!connected || !publicKey) {
@@ -65,8 +69,10 @@ export default function FundingSwapPage() {
         new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
       )[0];
 
-      // 8-hour funding periods
-      const durationPeriods = parseInt(duration) * 3;
+      if (durationTooLong) {
+        showError(`Duration exceeds the pool maximum of ${primaryPool.maxDurationPeriods} periods`);
+        return;
+      }
       const notionalValue = parseFloat(notional);
       const fixedRateBps = Math.round(fixedRate * 10000);
 
@@ -115,7 +121,8 @@ export default function FundingSwapPage() {
         DEFAULT_MARKET,
         USDC_MINT,
         userCollateral,
-        position.swapId
+        position.swapId,
+        position.address
       );
 
       if (sig) {
@@ -308,7 +315,7 @@ export default function FundingSwapPage() {
               <div className="flex justify-between mb-2">
                 <span className="text-sm text-[var(--muted)]">Funding Periods</span>
                 <span className="text-sm text-[var(--foreground)]">
-                  {parseInt(duration) * 3}
+                  {durationPeriods}
                 </span>
               </div>
               <div className="flex justify-between mb-2">
@@ -418,7 +425,7 @@ export default function FundingSwapPage() {
                           </span>
                         </td>
                         <td className="py-4 px-4 text-[var(--foreground)]">
-                          {(pos.fixedRateBps.toNumber() / 100).toFixed(3)}%
+                          {(pos.fixedRateBps / 100).toFixed(3)}%
                         </td>
                         <td className="py-4 px-4 text-[var(--foreground)]">
                           ${(pos.notional.toNumber() / 1e6).toLocaleString()}

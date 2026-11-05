@@ -214,7 +214,8 @@ export function useFundingSwap() {
       marketSymbol: string,
       collateralMint: PublicKey,
       userCollateral: PublicKey,
-      swapId: BN
+      swapId: BN,
+      swap?: PublicKey
     ) => {
       if (!client) throw new Error("Client not ready");
 
@@ -223,7 +224,8 @@ export function useFundingSwap() {
           marketSymbol,
           collateralMint,
           userCollateral,
-          swapId
+          swapId,
+          swap
         );
       });
 
