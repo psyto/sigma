@@ -132,15 +132,21 @@ pub struct InitializePool<'info> {
     pub underlying_mint: Account<'info, Mint>,
 
     /// Price feed from shared oracle
-    /// CHECK: Validated via seeds in shared-oracle
+    /// CHECK: Pinned to the shared-oracle price feed PDA for underlying_mint
     #[account(
+        seeds = [b"price_feed", underlying_mint.key().as_ref()],
+        bump,
+        seeds::program = shared_oracle::ID,
         constraint = price_feed.owner == &shared_oracle::ID @ VolswapError::InvalidOracle
     )]
     pub price_feed: AccountInfo<'info>,
 
     /// Variance tracker from shared oracle
-    /// CHECK: Validated via seeds in shared-oracle
+    /// CHECK: Pinned to the shared-oracle variance tracker PDA for price_feed
     #[account(
+        seeds = [b"variance_tracker", price_feed.key().as_ref()],
+        bump,
+        seeds::program = shared_oracle::ID,
         constraint = variance_tracker.owner == &shared_oracle::ID @ VolswapError::InvalidOracle
     )]
     pub variance_tracker: AccountInfo<'info>,
