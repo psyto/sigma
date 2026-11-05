@@ -1,7 +1,11 @@
 import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor";
 import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountIdempotentInstruction,
+} from "@solana/spl-token";
 import {
   PROGRAM_IDS,
   PriceFeed,
@@ -24,6 +28,13 @@ import {
   findProgramDataAddress,
   SigmaProtocolName,
 } from "./utils";
+
+function protocolForProgram(programId: PublicKey): SigmaProtocolName {
+  if (programId.equals(PROGRAM_IDS.VOLSWAP)) return "volSwap";
+  if (programId.equals(PROGRAM_IDS.FUNDING_SWAP)) return "fundingSwap";
+  if (programId.equals(PROGRAM_IDS.EXOTIC_VAULT)) return "exoticVault";
+  throw new Error("account is not owned by a Sigma protocol program");
+}
 
 /**
  * Client for interacting with the Sigma SharedOracle program
@@ -315,11 +326,7 @@ export class OracleClient {
     durationDays: number,
     impliedWeight: number
   ): Promise<string> {
-    // Program seeds: ["volatility_index", price_feed, index_name]
-    const [volatilityIndex] = PublicKey.findProgramAddressSync(
-      [Buffer.from("volatility_index"), priceFeed.toBuffer(), Buffer.from(name)],
-      PROGRAM_IDS.SHARED_ORACLE
-    );
+    const [volatilityIndex] = findVolatilityIndexPDA(priceFeed, name);
     const [varianceTracker] = findVarianceTrackerPDA(priceFeed);
 
     return this.program.methods
@@ -336,19 +343,16 @@ export class OracleClient {
   }
 
   /**
-   * Add a component to the volatility index
+   * Update the volatility index from its variance tracker (permissionless)
    */
-  async addIndexComponent(
-    name: string,
-    varianceTracker: PublicKey,
-    weight: number
-  ): Promise<string> {
-    const [volatilityIndex] = findVolatilityIndexPDA(name);
+  async updateVolatilityIndex(priceFeed: PublicKey, name: string): Promise<string> {
+    const [volatilityIndex] = findVolatilityIndexPDA(priceFeed, name);
+    const [varianceTracker] = findVarianceTrackerPDA(priceFeed);
 
     return this.program.methods
-      .addIndexComponent(weight)
+      .updateVolatilityIndex()
       .accounts({
-        authority: this.provider.wallet.publicKey,
+        payer: this.provider.wallet.publicKey,
         volatilityIndex,
         varianceTracker,
       })
@@ -356,25 +360,10 @@ export class OracleClient {
   }
 
   /**
-   * Update the volatility index
-   */
-  async updateVolatilityIndex(name: string): Promise<string> {
-    const [volatilityIndex] = findVolatilityIndexPDA(name);
-
-    return this.program.methods
-      .updateVolatilityIndex()
-      .accounts({
-        authority: this.provider.wallet.publicKey,
-        volatilityIndex,
-      })
-      .rpc();
-  }
-
-  /**
    * Fetch a volatility index account
    */
-  async getVolatilityIndex(name: string): Promise<VolatilityIndex | null> {
-    const [volatilityIndex] = findVolatilityIndexPDA(name);
+  async getVolatilityIndex(priceFeed: PublicKey, name: string): Promise<VolatilityIndex | null> {
+    const [volatilityIndex] = findVolatilityIndexPDA(priceFeed, name);
     try {
       return await (this.program.account as any).volatilityIndex.fetch(volatilityIndex) as unknown as VolatilityIndex;
     } catch {
@@ -439,24 +428,47 @@ export class OracleClient {
 
   /**
    * Tokenize a position for trading on the secondary market. The wallet must
-   * own `originalPosition`, a live position account of `protocol`'s program;
-   * notional, direction and strike are read from it on-chain. `expiry` is
-   * used for VolSwap / FundingSwap positions (ExoticVault options store it).
+   * own `originalPosition`, a live position of a Sigma protocol. The program
+   * moves the position into custody of the position token PDA and reads its
+   * terms and expiry on-chain (from the position and its pool / vault).
    */
-  async tokenizePosition(
-    originalPosition: PublicKey,
-    protocol: SigmaProtocolName,
-    expiry: BN = new BN(0)
-  ): Promise<string> {
+  async tokenizePosition(originalPosition: PublicKey): Promise<string> {
+    const info = await this.connection.getAccountInfo(originalPosition);
+    if (!info) throw new Error("position account not found");
+    const protocol = protocolForProgram(info.owner);
+    // Every Sigma position stores its pool / vault right after the owner (bytes 40..72)
+    const positionPool = new PublicKey(info.data.subarray(40, 72));
     const [positionToken] = findPositionTokenPDA(originalPosition);
 
     return this.program.methods
-      .tokenizePosition({ [protocol]: {} }, expiry)
+      .tokenizePosition({ [protocol]: {} })
       .accounts({
         owner: this.provider.wallet.publicKey,
         positionAccount: originalPosition,
+        positionPool,
+        protocolProgram: info.owner,
         positionToken,
         systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+  }
+
+  /**
+   * Take the underlying position back out of custody and close the position
+   * token. The wallet must hold the token and it must not be listed.
+   */
+  async redeemPosition(originalPosition: PublicKey): Promise<string> {
+    const [positionToken] = findPositionTokenPDA(originalPosition);
+    const info = await this.connection.getAccountInfo(originalPosition);
+    if (!info) throw new Error("position account not found");
+
+    return this.program.methods
+      .redeemPosition()
+      .accounts({
+        owner: this.provider.wallet.publicKey,
+        positionToken,
+        positionAccount: originalPosition,
+        protocolProgram: info.owner,
       })
       .rpc();
   }
@@ -484,30 +496,40 @@ export class OracleClient {
   }
 
   /**
-   * Buy a listed position. Pays the listing price in the market's quote mint
-   * from the wallet's associated token account to the seller's associated
-   * token account (minus the market fee, which goes to the fee recipient's).
+   * Buy a listed position, paying at most `maxPrice` in the market's quote
+   * mint from the wallet's associated token account. The seller's and fee
+   * recipient's associated token accounts are created if missing.
    */
   async buyPosition(
     positionToken: PublicKey,
+    maxPrice: BN,
     protocol: SigmaProtocolName = "volSwap"
   ): Promise<string> {
     const [secondaryMarket] = findSecondaryMarketPDA(protocol);
     const market = await (this.program.account as any).secondaryMarket.fetch(secondaryMarket);
     const token = await (this.program.account as any).positionToken.fetch(positionToken);
     const buyer = this.provider.wallet.publicKey;
+    const mint: PublicKey = market.quoteMint;
+
+    const sellerTokenAccount = getAssociatedTokenAddressSync(mint, token.owner, true);
+    const feeRecipientTokenAccount = getAssociatedTokenAddressSync(mint, market.feeRecipient, true);
 
     return this.program.methods
-      .buyPosition()
+      .buyPosition(maxPrice)
       .accounts({
         buyer,
         positionToken,
         secondaryMarket,
-        buyerTokenAccount: getAssociatedTokenAddressSync(market.quoteMint, buyer, true),
-        sellerTokenAccount: getAssociatedTokenAddressSync(market.quoteMint, token.owner, true),
-        feeRecipientTokenAccount: getAssociatedTokenAddressSync(market.quoteMint, market.feeRecipient, true),
+        positionAccount: token.positionAccount,
+        buyerTokenAccount: getAssociatedTokenAddressSync(mint, buyer, true),
+        sellerTokenAccount,
+        feeRecipientTokenAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
+      .preInstructions([
+        createAssociatedTokenAccountIdempotentInstruction(buyer, sellerTokenAccount, token.owner, mint),
+        createAssociatedTokenAccountIdempotentInstruction(buyer, feeRecipientTokenAccount, market.feeRecipient, mint),
+      ])
       .rpc();
   }
 

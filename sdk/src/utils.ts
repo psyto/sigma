@@ -34,9 +34,10 @@ export function findVarianceTrackerPDA(priceFeed: PublicKey): [PublicKey, number
   );
 }
 
-export function findVolatilityIndexPDA(name: string): [PublicKey, number] {
+/** Volatility index PDA: ["volatility_index", price_feed, index_name] */
+export function findVolatilityIndexPDA(priceFeed: PublicKey, name: string): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("volatility_index"), Buffer.from(name)],
+    [Buffer.from("volatility_index"), priceFeed.toBuffer(), Buffer.from(name)],
     PROGRAM_IDS.SHARED_ORACLE
   );
 }

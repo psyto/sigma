@@ -247,8 +247,9 @@ describe("Oracle PDA derivations", () => {
   });
 
   it("findVolatilityIndexPDA should work with index names", () => {
-    const [pda1] = findVolatilityIndexPDA("SOL-VOL-INDEX");
-    const [pda2] = findVolatilityIndexPDA("ETH-VOL-INDEX");
+    const priceFeed = PublicKey.unique();
+    const [pda1] = findVolatilityIndexPDA(priceFeed, "SOL-VOL-INDEX");
+    const [pda2] = findVolatilityIndexPDA(priceFeed, "ETH-VOL-INDEX");
     expect(pda1).toBeInstanceOf(PublicKey);
     expect(pda1.equals(pda2)).toBe(false);
   });
