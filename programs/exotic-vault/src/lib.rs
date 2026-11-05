@@ -10,7 +10,7 @@ pub mod instructions;
 
 use state::{
     ExoticVault, ExoticOption, PriceSampleBuffer, LiquidityProvider,
-    OptionType, OptionStatus,
+    OptionType, OptionStatus, ExoticVaultConfig,
 };
 use errors::ExoticVaultError;
 
@@ -24,6 +24,14 @@ use errors::ExoticVaultError;
 #[program]
 pub mod exotic_vault {
     use super::*;
+
+    /// Set the program admin once. Only the program's upgrade authority may call this.
+    pub fn initialize_config(ctx: Context<InitializeConfig>, admin: Pubkey) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.admin = admin;
+        config.bump = ctx.bumps.config;
+        Ok(())
+    }
 
     /// Initialize an exotic options vault
     pub fn initialize_vault(
@@ -153,8 +161,14 @@ pub struct VaultParams {
 
 #[derive(Accounts)]
 pub struct InitializeVault<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == config.admin @ ExoticVaultError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [ExoticVaultConfig::SEED_PREFIX], bump = config.bump)]
+    pub config: Account<'info, ExoticVaultConfig>,
 
     pub collateral_mint: Account<'info, Mint>,
 
@@ -309,8 +323,11 @@ pub struct CheckBarrier<'info> {
     pub option: Account<'info, ExoticOption>,
 
     /// Price feed from shared oracle
-    /// CHECK: Validated via vault.price_feed
+    /// CHECK: Re-derived as the shared-oracle price feed PDA for vault.underlying_mint
     #[account(
+        seeds = [b"price_feed", vault.underlying_mint.as_ref()],
+        bump,
+        seeds::program = shared_oracle::ID,
         constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle,
         constraint = price_feed.owner == &shared_oracle::ID @ ExoticVaultError::InvalidOracle
     )]
@@ -344,8 +361,11 @@ pub struct RecordPriceSample<'info> {
     pub sample_buffer: Account<'info, PriceSampleBuffer>,
 
     /// Price feed from shared oracle
-    /// CHECK: Validated via vault.price_feed
+    /// CHECK: Re-derived as the shared-oracle price feed PDA for vault.underlying_mint
     #[account(
+        seeds = [b"price_feed", vault.underlying_mint.as_ref()],
+        bump,
+        seeds::program = shared_oracle::ID,
         constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle,
         constraint = price_feed.owner == &shared_oracle::ID @ ExoticVaultError::InvalidOracle
     )]
@@ -378,8 +398,11 @@ pub struct SettleOption<'info> {
     pub sample_buffer: Option<Account<'info, PriceSampleBuffer>>,
 
     /// Price feed from shared oracle
-    /// CHECK: Validated via vault.price_feed
+    /// CHECK: Re-derived as the shared-oracle price feed PDA for vault.underlying_mint
     #[account(
+        seeds = [b"price_feed", vault.underlying_mint.as_ref()],
+        bump,
+        seeds::program = shared_oracle::ID,
         constraint = price_feed.key() == vault.price_feed @ ExoticVaultError::InvalidOracle,
         constraint = price_feed.owner == &shared_oracle::ID @ ExoticVaultError::InvalidOracle
     )]
@@ -589,4 +612,27 @@ pub struct LiquidityWithdrawn {
     pub provider: Pubkey,
     pub shares: u64,
     pub amount: u64,
+}
+
+#[derive(Accounts)]
+pub struct InitializeConfig<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + ExoticVaultConfig::INIT_SPACE,
+        seeds = [ExoticVaultConfig::SEED_PREFIX],
+        bump
+    )]
+    pub config: Account<'info, ExoticVaultConfig>,
+
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ ExoticVaultError::Unauthorized)]
+    pub program: Program<'info, crate::program::ExoticVault>,
+
+    #[account(constraint = program_data.upgrade_authority_address == Some(payer.key()) @ ExoticVaultError::Unauthorized)]
+    pub program_data: Account<'info, ProgramData>,
+
+    pub system_program: Program<'info, System>,
 }

@@ -9,6 +9,7 @@ import {
   mintTo,
 } from "@solana/spl-token";
 import { expect } from "chai";
+import { ensureConfig } from "./helpers/config";
 
 type ExoticVault = any;
 
@@ -27,7 +28,12 @@ describe("exotic-vault", () => {
   let vaultCollateralPDA: PublicKey;
   let userCollateralAccount: PublicKey;
 
+  let oracleConfigPDA: PublicKey;
+  let configPDA: PublicKey;
+
   before(async () => {
+    oracleConfigPDA = await ensureConfig(oracleProgram, "oracle_config", "initializeOracleConfig");
+    configPDA = await ensureConfig(program, "config", "initializeConfig");
     // Create collateral mint (USDC-like)
     collateralMint = await createMint(
       provider.connection,
@@ -61,6 +67,7 @@ describe("exotic-vault", () => {
       await oracleProgram.methods
         .initializePriceFeed("SOL", new BN(1), 360)
         .accounts({
+          oracleConfig: oracleConfigPDA,
           authority: authority.publicKey,
           assetMint: underlyingMint,
           priceFeed: priceFeedPDA,
@@ -130,6 +137,7 @@ describe("exotic-vault", () => {
         await program.methods
           .initializeVault(vaultParams)
           .accounts({
+            config: configPDA,
             authority: authority.publicKey,
             collateralMint: collateralMint,
             underlyingMint: underlyingMint,

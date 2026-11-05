@@ -337,3 +337,16 @@ impl PriceSampleBuffer {
         (weighted_sum / total_time) as u64
     }
 }
+
+/// Program-wide admin. Created once by the program's upgrade authority.
+#[account]
+#[derive(InitSpace)]
+pub struct ExoticVaultConfig {
+    /// Admin allowed to create canonical accounts
+    pub admin: Pubkey,
+    pub bump: u8,
+}
+
+impl ExoticVaultConfig {
+    pub const SEED_PREFIX: &'static [u8] = b"config";
+}
