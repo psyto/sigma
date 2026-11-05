@@ -45,6 +45,7 @@ struct FundingSwapPositionHead {
     _duration_periods: u16,
     _start_period: u64,
     end_period: u64,
+    expires_at: i64,
     _collateral_deposited: u64,
     _accumulated_pnl: i64,
     _periods_settled: u16,
@@ -91,23 +92,6 @@ struct VariancePoolHead {
     epoch_end_time: i64,
 }
 
-#[derive(AnchorDeserialize)]
-struct FundingPoolHead {
-    _authority: Pubkey,
-    _market_symbol: String,
-    _collateral_mint: Pubkey,
-    _funding_feed: Pubkey,
-    funding_period_seconds: u64,
-    _min_notional: u64,
-    _max_notional: u64,
-    _max_duration_periods: u16,
-    _fee_rate_bps: u16,
-    _early_exit_penalty_bps: u16,
-    _current_fixed_rate_bps: i16,
-    last_funding_time: i64,
-    current_period: u64,
-}
-
 /// Terms of a position, read from its account.
 pub struct PositionView {
     pub owner: Pubkey,
@@ -120,7 +104,7 @@ pub struct PositionView {
     /// VolSwap: strike variance (bps). FundingSwap: fixed rate (bps, i16 as
     /// i64 bit pattern). ExoticVault: strike price.
     pub strike: u64,
-    /// Expiry timestamp when the position stores one (ExoticVault).
+    /// Expiry timestamp when the position stores one (FundingSwap, ExoticVault).
     pub expiry: Option<i64>,
     /// VolSwap: the position's epoch. FundingSwap: its end period. Else 0.
     pub period: u64,
@@ -197,7 +181,7 @@ pub fn read_position(protocol: SigmaProtocol, info: &AccountInfo) -> Result<Posi
                 // Receiver profits when funding rises: treat as long
                 direction: if p.is_receiver { PositionDirection::Long } else { PositionDirection::Short },
                 strike: p.fixed_rate_bps as i64 as u64,
-                expiry: None,
+                expiry: Some(p.expires_at),
                 data_hash,
             }
         }
@@ -221,9 +205,9 @@ pub fn read_position(protocol: SigmaProtocol, info: &AccountInfo) -> Result<Posi
     Ok(view)
 }
 
-/// Expiry timestamp of a position. ExoticVault options store it; for VolSwap it
-/// is the end of the position's epoch, and for FundingSwap the estimated time
-/// of its end period, both read from `parent_info` (the position's pool).
+/// Expiry timestamp of a position. ExoticVault options and FundingSwap swaps
+/// store it; for VolSwap it is the end of the position's epoch, read from
+/// `parent_info` (the position's pool).
 pub fn position_expiry(
     protocol: SigmaProtocol,
     view: &PositionView,
@@ -244,12 +228,9 @@ pub fn position_expiry(
             })
         }
         SigmaProtocol::FundingSwap => {
-            let data = checked_data(parent_info, &FUNDING_SWAP_PROGRAM_ID, "FundingPool")?;
-            let pool = FundingPoolHead::deserialize(&mut &data[8..])
-                .map_err(|_| error!(OracleError::InvalidPositionAccount))?;
-            let remaining = view.period.saturating_sub(pool.current_period);
-            let secs = remaining.saturating_mul(pool.funding_period_seconds).min(i64::MAX as u64) as i64;
-            Ok(pool.last_funding_time.saturating_add(secs))
+            // The swap stores its exact expiry; still require the parent to be its pool
+            checked_data(parent_info, &FUNDING_SWAP_PROGRAM_ID, "FundingPool")?;
+            view.expiry.ok_or_else(|| error!(OracleError::InvalidPositionAccount))
         }
     }
 }

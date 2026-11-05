@@ -140,29 +140,29 @@ impl FundingPool {
         (notional * self.fee_rate_bps as u64) / 10000
     }
 
-    /// Calculate early exit refund with penalty
+    /// Calculate early exit refund with penalty, pro rata on the time left
+    /// until the swap's stored expiry
     pub fn calculate_early_exit_refund(
         &self,
         swap: &FundingSwapPosition,
-        current_period: u64,
+        now: i64,
     ) -> u64 {
-        // Calculate periods remaining
-        let periods_elapsed = current_period.saturating_sub(swap.start_period) as u16;
-        let periods_remaining = swap.duration_periods.saturating_sub(periods_elapsed);
-
-        if periods_remaining == 0 {
+        let remaining = swap.expires_at.saturating_sub(now);
+        if remaining <= 0 {
             return swap.collateral_deposited;
         }
+        let total = swap.expires_at.saturating_sub(swap.opened_at);
+        if total <= 0 {
+            return swap.collateral_deposited;
+        }
+        let remaining = (remaining as u128).min(total as u128);
 
-        // Pro-rata refund based on remaining periods
-        let total_periods = swap.duration_periods as u64;
-        let remaining_periods = periods_remaining as u64;
-
-        let pro_rata_refund = (swap.collateral_deposited * remaining_periods) / total_periods;
+        // Pro-rata refund based on remaining time
+        let pro_rata_refund = (swap.collateral_deposited as u128 * remaining / total as u128) as u64;
 
         // Apply penalty
-        let penalty_factor = 10000 - self.early_exit_penalty_bps as u64;
-        (pro_rata_refund * penalty_factor) / 10000
+        let penalty_factor = 10000u64.saturating_sub(self.early_exit_penalty_bps as u64);
+        ((pro_rata_refund as u128 * penalty_factor as u128) / 10000) as u64
     }
 
     /// Get net exposure (receiver - payer notional)
@@ -218,6 +218,9 @@ pub struct FundingSwapPosition {
     /// Ending period
     pub end_period: u64,
 
+    /// Expiry timestamp, fixed at open: open time + duration_periods × funding_period_seconds
+    pub expires_at: i64,
+
     /// Collateral deposited
     pub collateral_deposited: u64,
 
@@ -243,9 +246,9 @@ pub struct FundingSwapPosition {
 }
 
 impl FundingSwapPosition {
-    /// Check if swap has ended
-    pub fn has_ended(&self, current_period: u64) -> bool {
-        current_period >= self.end_period
+    /// Check if swap has reached its stored expiry
+    pub fn has_ended(&self, now: i64) -> bool {
+        now >= self.expires_at
     }
 
     /// Get remaining periods

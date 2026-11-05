@@ -755,6 +755,11 @@ describe("funding-swap", () => {
       );
       expect(collateralBefore).to.equal(expectedCollateral);
 
+      // Expiry is stored at open: open time + duration × funding period (1 s here)
+      expect(positionBefore.expiresAt.toNumber()).to.equal(
+        positionBefore.openedAt.toNumber() + durationPeriods * poolAtOpen.fundingPeriodSeconds.toNumber()
+      );
+
       // Process funding periods with a very negative rate (adverse for receiver).
       const adverseRate = -200;
       await recordAndProcessFunding(adverseRate);

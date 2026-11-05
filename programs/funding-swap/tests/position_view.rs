@@ -25,6 +25,7 @@ fn position(status: SwapStatus, pool: Pubkey, end_period: u64) -> FundingSwapPos
         duration_periods: 10,
         start_period: 1,
         end_period,
+        expires_at: 40_000 + end_period as i64,
         collateral_deposited: 1,
         accumulated_pnl: -2,
         periods_settled: 0,
@@ -88,7 +89,7 @@ fn rejects_foreign_owner() {
 }
 
 #[test]
-fn expiry_from_pool_periods() {
+fn expiry_is_the_stored_timestamp() {
     let pool_acc = pool(4);
     let mut data = Vec::new();
     pool_acc.try_serialize(&mut data).unwrap();
@@ -96,11 +97,15 @@ fn expiry_from_pool_periods() {
     let mut lamports = 1u64;
     let pool_info = AccountInfo::new(&pool_key, false, false, &mut lamports, &mut data, &funding_swap::ID, false, 0);
 
-    // 7 periods left at 3600 s each after the last funding time
+    // The stored expires_at, independent of how far the pool's periods have run
     let live = read(&position(SwapStatus::Active, pool_key, 11), &funding_swap::ID).unwrap();
-    assert_eq!(position_expiry(SigmaProtocol::FundingSwap, &live, &pool_info).unwrap(), 10_000 + 7 * 3_600);
+    assert_eq!(live.expiry, Some(40_011));
+    assert_eq!(position_expiry(SigmaProtocol::FundingSwap, &live, &pool_info).unwrap(), 40_011);
     let ended = read(&position(SwapStatus::Active, pool_key, 2), &funding_swap::ID).unwrap();
-    assert_eq!(position_expiry(SigmaProtocol::FundingSwap, &ended, &pool_info).unwrap(), 10_000);
+    assert_eq!(position_expiry(SigmaProtocol::FundingSwap, &ended, &pool_info).unwrap(), 40_002);
+    // The parent must be the position's pool
+    let other = read(&position(SwapStatus::Active, Pubkey::new_unique(), 11), &funding_swap::ID).unwrap();
+    assert!(position_expiry(SigmaProtocol::FundingSwap, &other, &pool_info).is_err());
 }
 
 #[test]
@@ -109,4 +114,24 @@ fn transfer_instruction_discriminator_matches() {
         funding_swap::instruction::TransferPositionOwner::DISCRIMINATOR,
         &shared_oracle::position_view::transfer_owner_discriminator()[..]
     );
+}
+
+#[test]
+fn end_and_early_refund_follow_the_stored_expiry() {
+    let mut pos = position(SwapStatus::Active, Pubkey::new_unique(), 11);
+    pos.opened_at = 1_000;
+    pos.expires_at = 1_000 + 10 * 3_600;
+    pos.collateral_deposited = 1_000_000;
+    // Lagging or advanced pool periods do not move the end
+    assert!(!pos.has_ended(pos.expires_at - 1));
+    assert!(pos.has_ended(pos.expires_at));
+
+    let p = pool(0); // early_exit_penalty_bps = 4
+    // Half the term left: half the collateral, less the penalty
+    let half = p.calculate_early_exit_refund(&pos, 1_000 + 5 * 3_600);
+    assert_eq!(half, 500_000 * (10_000 - 4) / 10_000);
+    // At open: all of it, less the penalty
+    assert_eq!(p.calculate_early_exit_refund(&pos, 1_000), 1_000_000 * (10_000 - 4) / 10_000);
+    // At or after expiry: the full collateral
+    assert_eq!(p.calculate_early_exit_refund(&pos, pos.expires_at), 1_000_000);
 }

@@ -8,7 +8,7 @@ pub fn handler(ctx: Context<SettleSwap>) -> Result<()> {
 
     // Validations
     require!(swap.status == SwapStatus::Active, FundingSwapError::SwapAlreadySettled);
-    require!(swap.has_ended(pool.current_period), FundingSwapError::SwapNotEnded);
+    require!(swap.has_ended(clock.unix_timestamp), FundingSwapError::SwapNotEnded);
 
     // Calculate final P&L based on accumulated funding over the swap duration
     // In a production system, this would aggregate P&L from each funding period

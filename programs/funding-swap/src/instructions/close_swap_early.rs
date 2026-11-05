@@ -37,12 +37,13 @@ fn spl_token_transfer_signed<'info>(
 pub fn handler(ctx: Context<CloseSwapEarly>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     let swap = &ctx.accounts.swap;
+    let now = Clock::get()?.unix_timestamp;
 
     // Cannot close after swap has ended
-    require!(!swap.has_ended(pool.current_period), FundingSwapError::SwapNotEnded);
+    require!(!swap.has_ended(now), FundingSwapError::SwapNotEnded);
 
     // Calculate refund with early exit penalty
-    let refund = pool.calculate_early_exit_refund(swap, pool.current_period);
+    let refund = pool.calculate_early_exit_refund(swap, now);
 
     // Update pool state
     if swap.is_receiver {

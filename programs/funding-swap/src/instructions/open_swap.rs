@@ -66,6 +66,13 @@ pub fn handler(
     let fee = pool.calculate_fee(notional);
     let collateral_required = margin.checked_add(fee).ok_or(FundingSwapError::Overflow)?;
 
+    // Exact expiry from on-chain time plus the term
+    let term_seconds = (duration_periods as u64)
+        .checked_mul(pool.funding_period_seconds)
+        .and_then(|s| i64::try_from(s).ok())
+        .ok_or(FundingSwapError::Overflow)?;
+    let expires_at = clock.unix_timestamp.checked_add(term_seconds).ok_or(FundingSwapError::Overflow)?;
+
     // Transfer collateral from user to vault
     spl_token_transfer(
         &ctx.accounts.token_program.to_account_info(),
@@ -100,6 +107,7 @@ pub fn handler(
     swap.duration_periods = duration_periods;
     swap.start_period = pool.current_period;
     swap.end_period = pool.current_period + duration_periods as u64;
+    swap.expires_at = expires_at;
     swap.collateral_deposited = collateral_required;
     swap.accumulated_pnl = 0;
     swap.periods_settled = 0;

@@ -75,7 +75,7 @@ export class FundingSwapFixture {
     await this.program.methods
       .initializePool({
         marketSymbol: this.marketSymbol,
-        fundingPeriodSeconds: new BN(3600), // expiry (derived on-chain) lands hours ahead
+        fundingPeriodSeconds: new BN(3600), // stored expiry (open time + term) lands hours ahead
         minNotional: new BN(1_000_000_000),
         maxNotional: new BN(1_000_000_000_000),
         maxDurationPeriods: 90,
