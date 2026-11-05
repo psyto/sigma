@@ -16,6 +16,10 @@ export interface FundingPoolData extends FundingPool {
 
 export interface SwapPositionData extends FundingSwapPosition {
   address: PublicKey;
+  /** Receives the fixed rate (the program's payer side) */
+  isReceiveFixed: boolean;
+  /** Swap index (the swap account's seed) */
+  swapId: BN;
   pnlUsd: number;
   daysRemaining: number;
 }
@@ -70,15 +74,18 @@ export function useFundingSwap() {
       const now = Math.floor(Date.now() / 1000);
 
       const positionsWithData: SwapPositionData[] = userPositions.map((pos: any) => {
-        const endTime = pos.account.endTime.toNumber();
-        const daysRemaining = Math.max(0, Math.ceil((endTime - now) / 86400));
+        // Exact expiry stored on-chain at open
+        const expiresAt = pos.account.expiresAt.toNumber();
+        const daysRemaining = Math.max(0, Math.ceil((expiresAt - now) / 86400));
 
-        // Calculate P&L from total payments
-        const pnl = pos.account.totalPayments.toNumber() / 1e6;
+        // P&L recorded at settlement
+        const pnl = pos.account.accumulatedPnl.toNumber() / 1e6;
 
         return {
           ...pos.account,
           address: pos.publicKey,
+          isReceiveFixed: !pos.account.isReceiver,
+          swapId: pos.account.swapIndex,
           pnlUsd: pnl,
           daysRemaining,
         };
@@ -114,22 +121,22 @@ export function useFundingSwap() {
       collateralMint: PublicKey,
       userCollateral: PublicKey,
       notional: number,
-      fixedRateBps: number,
-      swapId: BN
+      durationPeriods: number,
+      fixedRateLimitBps: number
     ) => {
       if (!client) throw new Error("Client not ready");
 
       const notionalBN = new BN(notional * 1e6);
-      const fixedRateBN = new BN(fixedRateBps);
 
       const sig = await sendTransaction(async (c) => {
-        return c.fundingSwap.openReceiveFixed(
+        // receive fixed, pay floating: the program's payer side; the pool's fixed rate must be at least the limit
+        return c.fundingSwap.openPayer(
           marketSymbol,
           collateralMint,
           userCollateral,
           notionalBN,
-          fixedRateBN,
-          swapId
+          durationPeriods,
+          fixedRateLimitBps
         );
       });
 
@@ -149,22 +156,22 @@ export function useFundingSwap() {
       collateralMint: PublicKey,
       userCollateral: PublicKey,
       notional: number,
-      fixedRateBps: number,
-      swapId: BN
+      durationPeriods: number,
+      fixedRateLimitBps: number
     ) => {
       if (!client) throw new Error("Client not ready");
 
       const notionalBN = new BN(notional * 1e6);
-      const fixedRateBN = new BN(fixedRateBps);
 
       const sig = await sendTransaction(async (c) => {
-        return c.fundingSwap.openPayFixed(
+        // pay fixed, receive floating: the program's receiver side; the pool's fixed rate must be at most the limit
+        return c.fundingSwap.openReceiver(
           marketSymbol,
           collateralMint,
           userCollateral,
           notionalBN,
-          fixedRateBN,
-          swapId
+          durationPeriods,
+          fixedRateLimitBps
         );
       });
 

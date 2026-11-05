@@ -8,7 +8,6 @@ import { useFundingSwap } from "@/hooks";
 import { useSigma } from "@/contexts/SigmaProvider";
 import { useToast } from "@/components/Toast";
 import { validateAmount } from "@/lib/validation";
-import BN from "bn.js";
 
 // Constants
 const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
@@ -66,7 +65,8 @@ export default function FundingSwapPage() {
         new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
       )[0];
 
-      const swapId = new BN(Date.now());
+      // 8-hour funding periods
+      const durationPeriods = parseInt(duration) * 3;
       const notionalValue = parseFloat(notional);
       const fixedRateBps = Math.round(fixedRate * 10000);
 
@@ -77,8 +77,8 @@ export default function FundingSwapPage() {
           USDC_MINT,
           userCollateral,
           notionalValue,
-          fixedRateBps,
-          swapId
+          durationPeriods,
+          fixedRateBps
         );
       } else {
         sig = await openPayFixed(
@@ -86,8 +86,8 @@ export default function FundingSwapPage() {
           USDC_MINT,
           userCollateral,
           notionalValue,
-          fixedRateBps,
-          swapId
+          durationPeriods,
+          fixedRateBps
         );
       }
 

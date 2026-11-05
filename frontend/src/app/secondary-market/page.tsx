@@ -130,13 +130,16 @@ export default function SecondaryMarketPage() {
     fundingPositions.forEach((pos, index) => {
       // Use daysRemaining from computed field
       const daysLeft = pos.daysRemaining || 14;
-      const futureDate = new Date((now + daysLeft * 86400) * 1000);
 
       // Access underlying SDK data through any
       const rawPos = pos as any;
+      // Exact expiry stored on-chain at open
+      const expiresAt = rawPos.expiresAt?.toNumber?.();
+      const futureDate = new Date((expiresAt ?? now + daysLeft * 86400) * 1000);
       const isReceiveFixed = rawPos.isReceiveFixed ?? true;
       const notional = rawPos.notional?.toNumber?.() / 1e6 || 50000;
-      const fixedRate = rawPos.fixedRateBps?.toNumber?.() / 10000 || 0.04;
+      // fixed_rate_bps is an i16 (a plain number)
+      const fixedRate = rawPos.fixedRateBps !== undefined ? Number(rawPos.fixedRateBps) / 10000 : 0.04;
 
       positions.push({
         id: `funding-${index}`,

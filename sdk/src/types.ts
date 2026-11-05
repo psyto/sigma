@@ -157,44 +157,69 @@ export interface LiquidityProvider {
 // Funding Swap Types
 // ============================================================================
 
+/** `FundingPool` account (programs/funding-swap/src/state.rs) */
 export interface FundingPool {
   authority: PublicKey;
+  marketSymbol: string;
   collateralMint: PublicKey;
   fundingFeed: PublicKey;
-  marketSymbol: string;
-  swapDurationSeconds: BN;
+  fundingPeriodSeconds: BN;
   minNotional: BN;
   maxNotional: BN;
+  maxDurationPeriods: number;
   feeRateBps: number;
-  maxRateSpreadBps: number;
+  earlyExitPenaltyBps: number;
+  /** Fixed rate for new swaps (bps, can be negative) */
+  currentFixedRateBps: number;
+  lastFundingTime: BN;
+  currentPeriod: BN;
+  lastActualRateBps: BN;
+  totalReceiverNotional: BN;
+  totalPayerNotional: BN;
+  activeSwaps: number;
+  totalSwaps: BN;
+  totalVolume: BN;
+  totalFeesCollected: BN;
+  totalPeriodsProcessed: BN;
   totalLpShares: BN;
   totalLiquidity: BN;
-  totalReceiveFixedNotional: BN;
-  totalPayFixedNotional: BN;
+  accumulatedLpFees: BN;
   isActive: boolean;
+  isPaused: boolean;
   bump: number;
   vaultBump: number;
 }
 
+/** `FundingSwapPosition` account (programs/funding-swap/src/state.rs) */
 export interface FundingSwapPosition {
   owner: PublicKey;
   pool: PublicKey;
-  swapId: BN;
-  isReceiveFixed: boolean;
+  /** Seed of the swap account: the pool's total_swaps at open */
+  swapIndex: BN;
   notional: BN;
-  fixedRateBps: BN;
+  fixedRateBps: number;
+  /** Receiver pays fixed / receives floating; payer the reverse */
+  isReceiver: boolean;
+  durationPeriods: number;
+  startPeriod: BN;
+  endPeriod: BN;
+  /** Expiry timestamp, fixed at open (open time + duration × funding period) */
+  expiresAt: BN;
   collateralDeposited: BN;
-  startTime: BN;
-  endTime: BN;
-  lastFundingTime: BN;
-  totalPayments: BN;
+  accumulatedPnl: BN;
+  periodsSettled: number;
+  payoutAmount: BN;
   status: SwapStatus;
+  openedAt: BN;
+  settledAt: BN | null;
   bump: number;
 }
 
 export type SwapStatus =
   | { active: {} }
   | { settled: {} }
+  | { claimed: {} }
+  | { liquidated: {} }
   | { closedEarly: {} };
 
 // ============================================================================

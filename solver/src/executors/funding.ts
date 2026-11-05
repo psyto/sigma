@@ -74,15 +74,15 @@ export class FundingExecutor {
       throw new Error(`Swap validation failed: ${validation.reason}`);
     }
 
-    // Derive a swap ID from the pool's total swap count
-    const swapId: BN = poolData.totalSwaps || new BN(0);
+    // The program seeds the swap account with the pool's total_swaps at open
+    const swapIndex: BN = poolData.totalSwaps;
 
     // Derive PDAs
     const [poolVault] = findFundingPoolVaultPDA(intent.targetPool);
     const [swapPda] = findFundingSwapPositionPDA(
       intent.targetPool,
       solverWallet.publicKey,
-      swapId
+      swapIndex
     );
 
     // Get solver's collateral token account
@@ -91,40 +91,28 @@ export class FundingExecutor {
       solverWallet.publicKey
     );
 
-    const fixedRateBps = new BN(params.fixedRateLimitBps);
+    const accounts = {
+      user: solverWallet.publicKey,
+      pool: intent.targetPool,
+      swap: swapPda,
+      userCollateral,
+      poolVault,
+      collateralMint: intent.collateralMint,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    };
 
-    // Build and send the appropriate instruction
-    let signature: string;
-
-    if (params.isReceiver) {
-      signature = await this.program.methods
-        .openReceiveFixed(params.notional, fixedRateBps, swapId)
-        .accounts({
-          user: solverWallet.publicKey,
-          pool: intent.targetPool,
-          position: swapPda,
-          userCollateral,
-          poolVault,
-          collateralMint: intent.collateralMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-    } else {
-      signature = await this.program.methods
-        .openPayFixed(params.notional, fixedRateBps, swapId)
-        .accounts({
-          user: solverWallet.publicKey,
-          pool: intent.targetPool,
-          position: swapPda,
-          userCollateral,
-          poolVault,
-          collateralMint: intent.collateralMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-    }
+    // The intent's isReceiver means "receive fixed", which is the program's
+    // payer side (open_payer, min fixed rate); otherwise open_receiver (max).
+    const signature: string = params.isReceiver
+      ? await this.program.methods
+          .openPayer(params.notional, params.durationPeriods, params.fixedRateLimitBps)
+          .accounts(accounts)
+          .rpc()
+      : await this.program.methods
+          .openReceiver(params.notional, params.durationPeriods, params.fixedRateLimitBps)
+          .accounts(accounts)
+          .rpc();
 
     console.log(`  Swap PDA: ${swapPda.toBase58()}`);
     console.log(`  Signature: ${signature}`);
@@ -142,17 +130,8 @@ export class FundingExecutor {
     const poolData = await (this.program.account as any).fundingPool.fetch(poolPubkey);
     if (!poolData) return 0;
 
-    // Implied rate based on outstanding notional imbalance
-    const receiveFixed = poolData.totalReceiveFixedNotional || new BN(0);
-    const payFixed = poolData.totalPayFixedNotional || new BN(0);
-    const total = receiveFixed.add(payFixed);
-
-    if (total.isZero()) return 0;
-
-    // Rate adjusts based on supply/demand imbalance
-    const imbalanceRatio = receiveFixed.sub(payFixed).toNumber() / total.toNumber();
-    const baseRate = poolData.feeRateBps || 0;
-    return baseRate + Math.round(imbalanceRatio * 100);
+    // The fixed rate a new swap gets (open_* checks the limit against this)
+    return poolData.currentFixedRateBps ?? 0;
   }
 
   /**

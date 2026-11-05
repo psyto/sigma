@@ -80,25 +80,30 @@ await sigma.volswap.depositLiquidity(underlyingMint, userCollateral, amount);
 Trade funding rate derivatives:
 
 ```typescript
-// Receive fixed rate (hedge against falling funding)
-await sigma.fundingSwap.openReceiveFixed(
+// Payer: receive fixed, pay floating (hedge against falling funding).
+// Fails if the pool's fixed rate is below minFixedRateBps.
+await sigma.fundingSwap.openPayer(
   "SOL-PERP",
   collateralMint,
   userCollateral,
-  notional,
-  fixedRateBps,
-  swapId
+  notional,          // BN
+  durationPeriods,   // number of funding periods
+  minFixedRateBps
 );
 
-// Pay fixed rate (profit from high funding)
-await sigma.fundingSwap.openPayFixed(
+// Receiver: pay fixed, receive floating (profit from high funding).
+// Fails if the pool's fixed rate is above maxFixedRateBps.
+await sigma.fundingSwap.openReceiver(
   "SOL-PERP",
   collateralMint,
   userCollateral,
   notional,
-  fixedRateBps,
-  swapId
+  durationPeriods,
+  maxFixedRateBps
 );
+
+// The swap's expiry is stored at open (open time + durationPeriods x the
+// pool's funding period); settleSwap works from then on.
 ```
 
 ### Exotic Vault Client

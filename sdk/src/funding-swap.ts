@@ -181,31 +181,41 @@ export class FundingSwapClient {
   // ============================================================================
 
   /**
-   * Open a receive-fixed swap position
-   * You receive fixed rate and pay floating (funding rate)
+   * Swap account for the next swap the wallet opens in `pool`. The program
+   * seeds it with the pool's `total_swaps` at open, so this reads the pool.
    */
-  async openReceiveFixed(
+  async nextSwapAddress(pool: PublicKey, owner?: PublicKey): Promise<PublicKey> {
+    const poolAccount = await (this.program.account as any).fundingPool.fetch(pool);
+    return findFundingSwapPositionPDA(
+      pool,
+      owner ?? this.provider.wallet.publicKey,
+      poolAccount.totalSwaps as BN
+    )[0];
+  }
+
+  /**
+   * Open a receiver swap (`open_receiver`): pay the pool's fixed rate,
+   * receive floating (funding). Fails if the pool's fixed rate is above
+   * `maxFixedRateBps`. The swap's expiry is fixed on-chain at open.
+   */
+  async openReceiver(
     marketSymbol: string,
     collateralMint: PublicKey,
     userCollateral: PublicKey,
     notional: BN,
-    fixedRateBps: BN,
-    swapId: BN
+    durationPeriods: number,
+    maxFixedRateBps: number
   ): Promise<string> {
     const [pool] = findFundingPoolPDA(marketSymbol);
     const [poolVault] = findFundingPoolVaultPDA(pool);
-    const [position] = findFundingSwapPositionPDA(
-      pool,
-      this.provider.wallet.publicKey,
-      swapId
-    );
+    const swap = await this.nextSwapAddress(pool);
 
     return this.program.methods
-      .openReceiveFixed(notional, fixedRateBps, swapId)
+      .openReceiver(notional, durationPeriods, maxFixedRateBps)
       .accounts({
         user: this.provider.wallet.publicKey,
         pool,
-        position,
+        swap,
         userCollateral,
         poolVault,
         collateralMint,
@@ -216,31 +226,28 @@ export class FundingSwapClient {
   }
 
   /**
-   * Open a pay-fixed swap position
-   * You pay fixed rate and receive floating (funding rate)
+   * Open a payer swap (`open_payer`): receive the pool's fixed rate, pay
+   * floating (funding). Fails if the pool's fixed rate is below
+   * `minFixedRateBps`. The swap's expiry is fixed on-chain at open.
    */
-  async openPayFixed(
+  async openPayer(
     marketSymbol: string,
     collateralMint: PublicKey,
     userCollateral: PublicKey,
     notional: BN,
-    fixedRateBps: BN,
-    swapId: BN
+    durationPeriods: number,
+    minFixedRateBps: number
   ): Promise<string> {
     const [pool] = findFundingPoolPDA(marketSymbol);
     const [poolVault] = findFundingPoolVaultPDA(pool);
-    const [position] = findFundingSwapPositionPDA(
-      pool,
-      this.provider.wallet.publicKey,
-      swapId
-    );
+    const swap = await this.nextSwapAddress(pool);
 
     return this.program.methods
-      .openPayFixed(notional, fixedRateBps, swapId)
+      .openPayer(notional, durationPeriods, minFixedRateBps)
       .accounts({
         user: this.provider.wallet.publicKey,
         pool,
-        position,
+        swap,
         userCollateral,
         poolVault,
         collateralMint,
@@ -251,23 +258,19 @@ export class FundingSwapClient {
   }
 
   /**
-   * Record a funding payment for a position
+   * Process a funding period (`process_funding_period`): reads the current
+   * rate from the shared-oracle funding feed. The wallet must be the pool
+   * authority.
    */
-  async recordFundingPayment(
-    marketSymbol: string,
-    positionOwner: PublicKey,
-    swapId: BN
-  ): Promise<string> {
+  async processFundingPeriod(marketSymbol: string): Promise<string> {
     const [pool] = findFundingPoolPDA(marketSymbol);
     const [fundingFeed] = findFundingFeedPDA(marketSymbol);
-    const [position] = findFundingSwapPositionPDA(pool, positionOwner, swapId);
 
     return this.program.methods
-      .recordFundingPayment()
+      .processFundingPeriod()
       .accounts({
         authority: this.provider.wallet.publicKey,
         pool,
-        position,
         fundingFeed,
       })
       .rpc();

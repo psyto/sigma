@@ -235,24 +235,36 @@ describe("Interface shape tests", () => {
   it("FundingPool should have funding swap specific fields", () => {
     const pool: FundingPool = {
       authority: PublicKey.default,
+      marketSymbol: "SOL-PERP",
       collateralMint: PublicKey.default,
       fundingFeed: PublicKey.default,
-      marketSymbol: "SOL-PERP",
-      swapDurationSeconds: new BN(604800),
+      fundingPeriodSeconds: new BN(28800),
       minNotional: new BN(1000),
       maxNotional: new BN(1000000),
+      maxDurationPeriods: 90,
       feeRateBps: 50,
-      maxRateSpreadBps: 200,
+      earlyExitPenaltyBps: 500,
+      currentFixedRateBps: -5,
+      lastFundingTime: new BN(0),
+      currentPeriod: new BN(0),
+      lastActualRateBps: new BN(0),
+      totalReceiverNotional: new BN(0),
+      totalPayerNotional: new BN(0),
+      activeSwaps: 0,
+      totalSwaps: new BN(0),
+      totalVolume: new BN(0),
+      totalFeesCollected: new BN(0),
+      totalPeriodsProcessed: new BN(0),
       totalLpShares: new BN(0),
       totalLiquidity: new BN(0),
-      totalReceiveFixedNotional: new BN(0),
-      totalPayFixedNotional: new BN(0),
+      accumulatedLpFees: new BN(0),
       isActive: true,
+      isPaused: false,
       bump: 255,
       vaultBump: 254,
     };
     expect(pool.marketSymbol).toBe("SOL-PERP");
-    expect(pool.maxRateSpreadBps).toBe(200);
+    expect(pool.currentFixedRateBps).toBe(-5);
   });
 
   it("ExoticOption should support optional barrier fields", () => {
