@@ -18,12 +18,18 @@ import {
   findProgramDataAddress,
 } from "./utils";
 
+/** Pool parameters (the program's PoolParams, minus market_symbol). */
 export interface FundingPoolParams {
-  swapDurationSeconds: BN;
+  /** Funding period in seconds (e.g. 28800 = 8 hours) */
+  fundingPeriodSeconds: BN;
   minNotional: BN;
   maxNotional: BN;
+  /** Maximum swap duration in funding periods */
+  maxDurationPeriods: number;
   feeRateBps: number;
-  maxRateSpreadBps: number;
+  /** Initial fixed rate in bps (can be negative) */
+  initialFixedRateBps: number;
+  earlyExitPenaltyBps: number;
 }
 
 /**
@@ -102,7 +108,7 @@ export class FundingSwapClient {
     const [fundingFeed] = findFundingFeedPDA(marketSymbol);
 
     return this.program.methods
-      .initializePool(marketSymbol, params)
+      .initializePool({ marketSymbol, ...params })
       .accounts({
         authority: this.provider.wallet.publicKey,
         config: findFundingSwapConfigPDA()[0],
@@ -122,14 +128,13 @@ export class FundingSwapClient {
   async updatePool(
     marketSymbol: string,
     feeRateBps: number | null,
-    minNotional: BN | null,
-    maxNotional: BN | null,
-    maxRateSpreadBps: number | null
+    fixedRateBps: number | null,
+    isActive: boolean | null
   ): Promise<string> {
     const [pool] = findFundingPoolPDA(marketSymbol);
 
     return this.program.methods
-      .updatePool(feeRateBps, minNotional, maxNotional, maxRateSpreadBps)
+      .updatePool(feeRateBps, fixedRateBps, isActive)
       .accounts({
         authority: this.provider.wallet.publicKey,
         pool,
