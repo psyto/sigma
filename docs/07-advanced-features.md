@@ -127,7 +127,7 @@ The Secondary Market enables trading of Sigma positions before expiry through to
 
 ### Position Tokenization
 
-Any Sigma position (VolSwap, FundingSwap, ExoticVault) can be tokenized into a tradeable token:
+Any live Sigma position (VolSwap, FundingSwap, ExoticVault) can be tokenized into a tradeable token. Tokenizing moves the position into custody: the protocol program's `transfer_position_owner` makes the position token PDA its owner, and the terms below are read from the position and its pool / vault on-chain, not supplied by the caller:
 
 | Field | Description |
 |-------|-------------|
@@ -149,8 +149,9 @@ Any Sigma position (VolSwap, FundingSwap, ExoticVault) can be tokenized into a t
 **Buying Positions**
 - Browse active listings
 - Filter by protocol, asset, expiry
-- Execute purchase instantly
-- Position transfers to buyer
+- Execute purchase instantly, with a `max_price` bound
+- Pay in the market's quote mint
+- The position token passes to the buyer; the position stays in custody until the holder redeems it
 
 **Price Discovery**
 - Mark-to-market valuations
@@ -161,10 +162,11 @@ Any Sigma position (VolSwap, FundingSwap, ExoticVault) can be tokenized into a t
 
 | Action | Fee | Recipient |
 |--------|-----|-----------|
-| Tokenization | 0.1% | Protocol |
+| Tokenization | Free | - |
 | Listing | Free | - |
-| Sale | 0.5% | Protocol + LP pool |
+| Sale | `fee_rate_bps` of the price, set per market at `initialize_secondary_market` | the market's `fee_recipient` |
 | Cancellation | Free | - |
+| Redemption | Free | - |
 
 ### Benefits
 
@@ -193,20 +195,20 @@ After 15 days:
 - But you need capital for another trade
 
 Solution:
-1. Tokenize the position
+1. Tokenize the position (it moves into custody)
 2. List on Secondary Market
 3. Set ask price at $1,500 (15% premium)
 4. Buyer purchases
-5. You receive $1,500 immediately
-6. Buyer takes over position for remaining 15 days
+5. You receive $1,500 minus the market fee immediately
+6. Buyer holds the position token and redeems it to take over the position for the remaining 15 days
 ```
 
 ### Technical Implementation
 
-1. **Position Token Account**: PDA derived from position ID and protocol
-2. **Market Account**: Tracks all listings for a protocol
-3. **Listing**: Contains ask price, seller, and expiry
-4. **Transfer**: Atomic transfer of position and payment
+1. **Position Token Account**: PDA `["position_token", position]`. Holds the position in custody and records the holder, terms, and listing (price, minimum price, listing expiry)
+2. **Market Account**: PDA `["secondary_market", protocol]`, one per protocol. Created by the oracle admin with a fee rate, fee recipient and quote mint; keeps `active_listings`, total volume and trade count
+3. **Buy**: the buyer pays the listing price in the quote mint (seller and fee recipient token accounts), and the position token's holder changes in the same transaction. The underlying position must still be open and in custody
+4. **Redeem**: `redeem_position` hands the position back to the token holder and closes the token (not while listed)
 
 ---
 
@@ -315,9 +317,9 @@ All features integrate with Sigma's existing infrastructure:
 ### Volatility Index
 
 ```rust
-// Initialize a new volatility index
+// Initialize a new volatility index (oracle admin only).
+// PDA is derived from the price feed and the index name.
 initialize_volatility_index(
-    asset_symbol: String,      // e.g., "SOL"
     index_name: String,        // e.g., "SVI-SOL-7D"
     duration_days: u8,         // 7 or 30
     implied_weight: u16        // 0-10000 (basis points)
@@ -335,7 +337,7 @@ set_implied_volatility(
 ### CEX Funding Feed
 
 ```rust
-// Initialize CEX funding feed
+// Initialize CEX funding feed (oracle admin only)
 initialize_cex_funding_feed(
     market_symbol: String,     // e.g., "BTC-PERP"
     aggregation_method: FundingAggregationMethod
@@ -358,28 +360,32 @@ update_exchange_funding(
 ### Secondary Market
 
 ```rust
-// Initialize market
+// Initialize market (oracle admin only; accounts include fee_recipient and quote_mint)
 initialize_secondary_market(
-    protocol: SigmaProtocol    // VolSwap, FundingSwap, or ExoticVault
+    protocol: SigmaProtocol,   // VolSwap, FundingSwap, or ExoticVault
+    fee_rate_bps: u16          // sale fee, at most 10000
 )
 
-// Tokenize position
+// Tokenize position (position owner; accounts: position_account, position_pool,
+// protocol_program). Terms and expiry are read on-chain.
 tokenize_position(
-    original_position: Pubkey,
-    notional: u64,
-    expiry: i64,
-    position_data: [u8; 64]
+    protocol: SigmaProtocol
 )
+
+// Return the position to the token holder and close the token (not while listed)
+redeem_position()
 
 // List for sale
 list_position(
-    ask_price: u64,
-    min_price: Option<u64>,
-    listing_expiry: Option<i64>
+    price: u64,
+    min_price: u64,            // 0 for none
+    listing_expiry: i64        // 0 for none
 )
 
-// Buy position
-buy_position()
+// Buy position at the listing price, if it is at most max_price
+buy_position(
+    max_price: u64
+)
 
 // Cancel listing
 cancel_listing()

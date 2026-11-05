@@ -113,8 +113,8 @@ On-chain volatility index comparable to Volmex SVIV.
 
 Trade positions before expiry through tokenized position market.
 
-- **Position Tokenization**: Convert any Sigma position to a tradeable token
-- **Marketplace**: List, buy, and sell positions with price discovery
+- **Position Tokenization**: Convert any live Sigma position to a tradeable token; the position is held in custody by the token PDA until the holder redeems it
+- **Marketplace**: List, buy (with a `max_price` bound, paid in the market's quote mint), and sell positions with price discovery
 - **Mark-to-Market**: Real-time position valuation
 - **Early Exit**: Exit positions without waiting for settlement
 
@@ -230,6 +230,35 @@ cd solver && yarn dev
 ```
 
 The frontend will be available at `http://localhost:3000` and will automatically connect to the local validator.
+
+### Admin setup and deploy order
+
+Each program keeps an admin in a config PDA, and nothing can be created until it exists:
+
+1. Deploy the programs (`anchor deploy`, or `scripts/deploy-devnet.sh`).
+2. The **upgrade authority** of each program creates its config once and names the admin:
+   `initialize_oracle_config(admin)` on shared-oracle (PDA `["oracle_config"]`) and
+   `initialize_config(admin)` on volswap, funding-swap and exotic-vault (PDA `["config"]`).
+3. The admin creates the oracle accounts (price feeds, funding feeds, aggregated feeds, volatility
+   indices, CEX funding feeds, secondary markets; variance trackers by the admin or the price feed's
+   authority) and then the pools and vaults, which are pinned to their feeds at init.
+
+`scripts/init-test-data.ts` (localnet) and `scripts/setup-devnet.sh` (devnet) run these steps with
+the deploying wallet as admin. `anchor test` loads the programs upgradeable (`[test] upgradeable = true`
+in `Anchor.toml`) so the tests can create the configs.
+
+The admin role moves in two steps: the current admin calls `set_admin(new_admin)` and the new admin
+calls `accept_admin`. Proposing `Pubkey::default()` cancels a pending proposal.
+
+### Upgrading an existing deployment
+
+Several accounts changed layout, so state created by an earlier build must be recreated after upgrading:
+
+- the four config PDAs are new and must be created (step 2 above) before any other init;
+- `SecondaryMarket` now keeps an `active_listings` count and a `quote_mint` instead of a listing array,
+  and `PositionToken` gained `listing_expiry`: recreate secondary markets and position tokens;
+- funding-swap `FundingSwapPosition` gained `expires_at` (set at open): settle or close open swaps
+  before upgrading, then reopen.
 
 The solver service runs on `http://localhost:3001` and provides endpoints for encryption key registration and intent monitoring.
 
