@@ -48,6 +48,13 @@ pub mod exotic_vault {
         Ok(())
     }
 
+    /// Hand a position to a new owner (the current owner signs). Used by the
+    /// shared-oracle secondary market to hold positions while tokenized.
+    pub fn transfer_position_owner(ctx: Context<TransferPositionOwner>, new_owner: Pubkey) -> Result<()> {
+        ctx.accounts.position.owner = new_owner;
+        Ok(())
+    }
+
     /// Initialize an exotic options vault
     pub fn initialize_vault(
         ctx: Context<InitializeVault>,
@@ -331,8 +338,8 @@ pub struct CheckBarrier<'info> {
 
     #[account(
         mut,
-        seeds = [b"option", vault.key().as_ref(), option.owner.as_ref(), &option.option_index.to_le_bytes()],
-        bump = option.bump,
+        // Bound by vault rather than seeds: the owner may change (transfer_position_owner)
+        constraint = option.vault == vault.key() @ ExoticVaultError::InvalidVault,
         constraint = option.status == OptionStatus::Active @ ExoticVaultError::AlreadySettled
     )]
     pub option: Account<'info, ExoticOption>,
@@ -361,8 +368,8 @@ pub struct RecordPriceSample<'info> {
 
     #[account(
         mut,
-        seeds = [b"option", vault.key().as_ref(), option.owner.as_ref(), &option.option_index.to_le_bytes()],
-        bump = option.bump,
+        // Bound by vault rather than seeds: the owner may change (transfer_position_owner)
+        constraint = option.vault == vault.key() @ ExoticVaultError::InvalidVault,
         constraint = option.status == OptionStatus::Active @ ExoticVaultError::AlreadySettled,
         constraint = option.is_asian() @ ExoticVaultError::InvalidOptionType
     )]
@@ -400,8 +407,8 @@ pub struct SettleOption<'info> {
 
     #[account(
         mut,
-        seeds = [b"option", vault.key().as_ref(), option.owner.as_ref(), &option.option_index.to_le_bytes()],
-        bump = option.bump,
+        // Bound by vault rather than seeds: the owner may change (transfer_position_owner)
+        constraint = option.vault == vault.key() @ ExoticVaultError::InvalidVault,
         constraint = option.owner == user.key() @ ExoticVaultError::Unauthorized
     )]
     pub option: Account<'info, ExoticOption>,
@@ -437,8 +444,8 @@ pub struct ClaimPayout<'info> {
 
     #[account(
         mut,
-        seeds = [b"option", vault.key().as_ref(), user.key().as_ref(), &option.option_index.to_le_bytes()],
-        bump = option.bump,
+        // Bound by vault rather than seeds: the owner may change (transfer_position_owner)
+        constraint = option.vault == vault.key() @ ExoticVaultError::InvalidVault,
         constraint = option.owner == user.key() @ ExoticVaultError::Unauthorized,
         constraint = option.status == OptionStatus::Settled @ ExoticVaultError::NotSettled,
         close = user
@@ -671,4 +678,12 @@ pub struct AcceptAdmin<'info> {
 
     #[account(mut, seeds = [ExoticVaultConfig::SEED_PREFIX], bump = config.bump)]
     pub config: Account<'info, ExoticVaultConfig>,
+}
+
+#[derive(Accounts)]
+pub struct TransferPositionOwner<'info> {
+    pub owner: Signer<'info>,
+
+    #[account(mut, constraint = position.owner == owner.key() @ ExoticVaultError::Unauthorized)]
+    pub position: Account<'info, ExoticOption>,
 }

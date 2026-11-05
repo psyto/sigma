@@ -45,6 +45,13 @@ pub mod funding_swap {
         Ok(())
     }
 
+    /// Hand a position to a new owner (the current owner signs). Used by the
+    /// shared-oracle secondary market to hold positions while tokenized.
+    pub fn transfer_position_owner(ctx: Context<TransferPositionOwner>, new_owner: Pubkey) -> Result<()> {
+        ctx.accounts.position.owner = new_owner;
+        Ok(())
+    }
+
     /// Initialize a funding swap pool for a perpetual market
     pub fn initialize_pool(
         ctx: Context<InitializePool>,
@@ -262,8 +269,8 @@ pub struct SettleSwap<'info> {
 
     #[account(
         mut,
-        seeds = [b"swap", pool.key().as_ref(), swap.owner.as_ref(), &swap.swap_index.to_le_bytes()],
-        bump = swap.bump,
+        // Bound by pool rather than seeds: the owner may change (transfer_position_owner)
+        constraint = swap.pool == pool.key() @ FundingSwapError::InvalidPool,
         constraint = swap.owner == user.key() @ FundingSwapError::Unauthorized,
         constraint = swap.status == SwapStatus::Active @ FundingSwapError::SwapAlreadySettled
     )]
@@ -283,8 +290,8 @@ pub struct ClaimPayout<'info> {
 
     #[account(
         mut,
-        seeds = [b"swap", pool.key().as_ref(), user.key().as_ref(), &swap.swap_index.to_le_bytes()],
-        bump = swap.bump,
+        // Bound by pool rather than seeds: the owner may change (transfer_position_owner)
+        constraint = swap.pool == pool.key() @ FundingSwapError::InvalidPool,
         constraint = swap.owner == user.key() @ FundingSwapError::Unauthorized,
         constraint = swap.status == SwapStatus::Settled @ FundingSwapError::NotSettled,
         close = user
@@ -325,8 +332,8 @@ pub struct CloseSwapEarly<'info> {
 
     #[account(
         mut,
-        seeds = [b"swap", pool.key().as_ref(), user.key().as_ref(), &swap.swap_index.to_le_bytes()],
-        bump = swap.bump,
+        // Bound by pool rather than seeds: the owner may change (transfer_position_owner)
+        constraint = swap.pool == pool.key() @ FundingSwapError::InvalidPool,
         constraint = swap.owner == user.key() @ FundingSwapError::Unauthorized,
         constraint = swap.status == SwapStatus::Active @ FundingSwapError::SwapAlreadySettled,
         close = user
@@ -558,4 +565,12 @@ pub struct AcceptAdmin<'info> {
 
     #[account(mut, seeds = [FundingSwapConfig::SEED_PREFIX], bump = config.bump)]
     pub config: Account<'info, FundingSwapConfig>,
+}
+
+#[derive(Accounts)]
+pub struct TransferPositionOwner<'info> {
+    pub owner: Signer<'info>,
+
+    #[account(mut, constraint = position.owner == owner.key() @ FundingSwapError::Unauthorized)]
+    pub position: Account<'info, FundingSwapPosition>,
 }

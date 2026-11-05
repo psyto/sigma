@@ -85,4 +85,7 @@ pub enum ExoticVaultError {
 
     #[msg("Invalid token mint")]
     InvalidMint,
+
+    #[msg("Option does not belong to this vault")]
+    InvalidVault,
 }

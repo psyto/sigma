@@ -46,6 +46,13 @@ pub mod volswap {
         Ok(())
     }
 
+    /// Hand a position to a new owner (the current owner signs). Used by the
+    /// shared-oracle secondary market to hold positions while tokenized.
+    pub fn transfer_position_owner(ctx: Context<TransferPositionOwner>, new_owner: Pubkey) -> Result<()> {
+        ctx.accounts.position.owner = new_owner;
+        Ok(())
+    }
+
     /// Initialize a variance swap pool for an underlying asset
     pub fn initialize_pool(
         ctx: Context<InitializePool>,
@@ -294,8 +301,7 @@ pub struct SettlePosition<'info> {
 
     #[account(
         mut,
-        seeds = [b"position", pool.key().as_ref(), position.owner.as_ref(), &position.epoch.to_le_bytes()],
-        bump = position.bump,
+        // Bound by pool rather than seeds: the owner may change (transfer_position_owner)
         constraint = position.pool == pool.key() @ VolswapError::InvalidPool,
         constraint = position.epoch == pool.current_epoch @ VolswapError::WrongEpoch,
         constraint = position.status == PositionStatus::Active @ VolswapError::AlreadySettled
@@ -316,8 +322,8 @@ pub struct ClaimPayout<'info> {
 
     #[account(
         mut,
-        seeds = [b"position", pool.key().as_ref(), user.key().as_ref(), &position.epoch.to_le_bytes()],
-        bump = position.bump,
+        // Bound by pool rather than seeds: the owner may change (transfer_position_owner)
+        constraint = position.pool == pool.key() @ VolswapError::InvalidPool,
         constraint = position.owner == user.key() @ VolswapError::Unauthorized,
         constraint = position.status == PositionStatus::Settled @ VolswapError::NotSettled,
         close = user
@@ -370,8 +376,8 @@ pub struct ClosePositionEarly<'info> {
 
     #[account(
         mut,
-        seeds = [b"position", pool.key().as_ref(), user.key().as_ref(), &position.epoch.to_le_bytes()],
-        bump = position.bump,
+        // Bound by pool rather than seeds: the owner may change (transfer_position_owner)
+        constraint = position.pool == pool.key() @ VolswapError::InvalidPool,
         constraint = position.owner == user.key() @ VolswapError::Unauthorized,
         constraint = position.status == PositionStatus::Active @ VolswapError::AlreadySettled,
         close = user
@@ -612,4 +618,12 @@ pub struct AcceptAdmin<'info> {
 
     #[account(mut, seeds = [VolswapConfig::SEED_PREFIX], bump = config.bump)]
     pub config: Account<'info, VolswapConfig>,
+}
+
+#[derive(Accounts)]
+pub struct TransferPositionOwner<'info> {
+    pub owner: Signer<'info>,
+
+    #[account(mut, constraint = position.owner == owner.key() @ VolswapError::Unauthorized)]
+    pub position: Account<'info, VariancePosition>,
 }
