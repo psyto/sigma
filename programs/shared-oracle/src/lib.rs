@@ -6,6 +6,7 @@ declare_id!("81SjyEmtwJUeqU9ZEfc7sm9evVpDuGwRSLrFQeCF4j5o");
 pub mod state;
 pub mod errors;
 pub mod instructions;
+pub mod position_view;
 
 use state::*;
 use errors::OracleError;
@@ -475,28 +476,32 @@ pub mod shared_oracle {
         Ok(())
     }
 
-    /// Tokenize a position for secondary market trading
+    /// Tokenize a position for secondary market trading.
+    ///
+    /// `position_account` must be a live position of `protocol`'s program owned
+    /// by the signer; notional, direction, strike and the position hash are
+    /// read from it. `expiry` is used for protocols whose positions do not
+    /// store an expiry timestamp (VolSwap, FundingSwap).
     pub fn tokenize_position(
         ctx: Context<TokenizePosition>,
         protocol: SigmaProtocol,
-        notional: u64,
         expiry: i64,
-        direction: PositionDirection,
-        strike: u64,
-        position_hash: [u8; 32],
     ) -> Result<()> {
+        let view = position_view::read_position(protocol, &ctx.accounts.position_account)?;
+        require_keys_eq!(view.owner, ctx.accounts.owner.key(), OracleError::Unauthorized);
+
         let token = &mut ctx.accounts.position_token;
         let clock = Clock::get()?;
 
         token.owner = ctx.accounts.owner.key();
         token.protocol = protocol;
         token.position_account = ctx.accounts.position_account.key();
-        token.position_hash = position_hash;
-        token.notional = notional;
-        token.mark_to_market = notional as i64; // Initial MTM = notional
-        token.expiry = expiry;
-        token.direction = direction;
-        token.strike = strike;
+        token.position_hash = view.data_hash;
+        token.notional = view.notional;
+        token.mark_to_market = view.notional as i64; // Initial MTM = notional
+        token.expiry = view.expiry.unwrap_or(expiry);
+        token.direction = view.direction;
+        token.strike = view.strike;
         token.created_at = clock.unix_timestamp;
         token.is_listed = false;
         token.listing_price = 0;
@@ -1122,7 +1127,8 @@ pub struct TokenizePosition<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
-    /// CHECK: Original position account in the protocol
+    /// CHECK: Original position account; owner program, discriminator and
+    /// owner field are checked in the handler (position_view::read_position)
     pub position_account: AccountInfo<'info>,
 
     #[account(

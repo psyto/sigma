@@ -3,6 +3,7 @@ import { Program } from "@coral-xyz/anchor";
 import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
 import { expect } from "chai";
 import { ensureConfig } from "./helpers/config";
+import { FundingSwapFixture } from "./helpers/positions";
 import {
   TOKEN_PROGRAM_ID,
   createMint,
@@ -36,6 +37,8 @@ describe("shared-oracle", () => {
   let quoteMint: PublicKey;
   let sellerQuoteAta: PublicKey;
   let feeRecipientQuoteAta: PublicKey;
+  // Real funding-swap positions to tokenize (owned by the provider wallet)
+  const fundingSwap = new FundingSwapFixture("SECMKT-PERP");
 
   /** A buyer with SOL for fees and `amount` of the quote mint. */
   async function fundedBuyer(amount: number): Promise<{ buyer: Keypair; ata: PublicKey }> {
@@ -58,6 +61,7 @@ describe("shared-oracle", () => {
     feeRecipientQuoteAta = (
       await getOrCreateAssociatedTokenAccount(provider.connection, payer, quoteMint, feeRecipient.publicKey)
     ).address;
+    await fundingSwap.setup();
     // Create a mock asset mint for testing
     assetMint = Keypair.generate();
   });
@@ -687,15 +691,14 @@ describe("shared-oracle", () => {
   describe("Secondary Market", () => {
     let secondaryMarketPDA: PublicKey;
     let positionTokenPDA: PublicKey;
-    let positionAccount: Keypair;
+    let positionAccount: { publicKey: PublicKey };
 
     it("should initialize a secondary market", async () => {
-      // Protocol enum - VolSwap
-      const protocol = { volSwap: {} };
+      // Protocol enum - FundingSwap (the fixture opens funding-swap positions)
+      const protocol = { fundingSwap: {} };
       const feeRateBps = 50; // 0.5%
 
-      // VolSwap seed bytes
-      const protocolSeedBytes = Buffer.from("volswap_________");
+      const protocolSeedBytes = Buffer.from("fundingswap_____");
 
       [secondaryMarketPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("secondary_market"), protocolSeedBytes],
@@ -724,14 +727,32 @@ describe("shared-oracle", () => {
       }
     });
 
+    it("should reject tokenizing an account that is not a protocol position", async () => {
+      const fake = Keypair.generate();
+      const [fakeToken] = PublicKey.findProgramAddressSync(
+        [Buffer.from("position_token"), fake.publicKey.toBuffer()],
+        program.programId
+      );
+      try {
+        await program.methods
+          .tokenizePosition({ fundingSwap: {} }, new BN(0))
+          .accounts({
+            owner: authority.publicKey,
+            positionAccount: fake.publicKey,
+            positionToken: fakeToken,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+        expect.fail("tokenizing a non-position account should fail");
+      } catch (e: any) {
+        expect(e.toString()).to.include("InvalidPositionAccount");
+      }
+    });
+
     it("should tokenize a position", async () => {
-      positionAccount = Keypair.generate();
-      const protocol = { volSwap: {} };
-      const notional = new BN(10_000_000_000); // $10,000
+      const positionKey = await fundingSwap.openReceiver(new BN(10_000_000_000)); // $10,000
+      positionAccount = { publicKey: positionKey };
       const expiry = new BN(Date.now() / 1000 + 604800); // 7 days
-      const direction = { long: {} };
-      const strike = new BN(3500); // 35%
-      const positionHash = Buffer.alloc(32, 1); // Dummy hash
 
       [positionTokenPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("position_token"), positionAccount.publicKey.toBuffer()],
@@ -740,14 +761,7 @@ describe("shared-oracle", () => {
 
       try {
         await program.methods
-          .tokenizePosition(
-            protocol,
-            notional,
-            expiry,
-            direction,
-            strike,
-            Array.from(positionHash)
-          )
+          .tokenizePosition({ fundingSwap: {} }, expiry)
           .accounts({
             owner: authority.publicKey,
             positionAccount: positionAccount.publicKey,
@@ -756,8 +770,10 @@ describe("shared-oracle", () => {
           })
           .rpc();
 
+        // Terms come from the position account
         const token = await program.account.positionToken.fetch(positionTokenPDA);
         expect(token.notional.toNumber()).to.equal(10_000_000_000);
+        expect(token.direction).to.deep.equal({ long: {} }); // receiver
         expect(token.isActive).to.be.true;
         expect(token.isListed).to.be.false;
       } catch (e) {
@@ -1004,9 +1020,8 @@ describe("shared-oracle", () => {
 
     it("should emit PositionListed on list_position", async () => {
       // Create fresh position and market for event tests
-      const evtPositionAccount = Keypair.generate();
-      const protocol = { volSwap: {} };
-      const protocolSeedBytes = Buffer.from("volswap_________");
+      const evtPositionAccount = { publicKey: await fundingSwap.openReceiver(new BN(5_000_000_000)) };
+      const protocolSeedBytes = Buffer.from("fundingswap_____");
 
       const [evtSecondaryMarketPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("secondary_market"), protocolSeedBytes],
@@ -1018,15 +1033,11 @@ describe("shared-oracle", () => {
         program.programId
       );
 
-      // Tokenize a position
-      const notional = new BN(5_000_000_000);
+      // Tokenize the position
       const expiry = new BN(Date.now() / 1000 + 604800);
-      const direction = { long: {} };
-      const strike = new BN(4000);
-      const positionHash = Buffer.alloc(32, 2);
 
       await program.methods
-        .tokenizePosition(protocol, notional, expiry, direction, strike, Array.from(positionHash))
+        .tokenizePosition({ fundingSwap: {} }, expiry)
         .accounts({
           owner: authority.publicKey,
           positionAccount: evtPositionAccount.publicKey,
@@ -1057,9 +1068,8 @@ describe("shared-oracle", () => {
 
     it("should emit PositionSold on buy_position", async () => {
       // Create another fresh position for the buy test
-      const evtPositionAccount2 = Keypair.generate();
-      const protocol = { volSwap: {} };
-      const protocolSeedBytes = Buffer.from("volswap_________");
+      const evtPositionAccount2 = { publicKey: await fundingSwap.openReceiver(new BN(3_000_000_000)) };
+      const protocolSeedBytes = Buffer.from("fundingswap_____");
 
       const [evtSecondaryMarketPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("secondary_market"), protocolSeedBytes],
@@ -1071,15 +1081,11 @@ describe("shared-oracle", () => {
         program.programId
       );
 
-      // Tokenize
-      const notional = new BN(3_000_000_000);
+      // Tokenize the position
       const expiry = new BN(Date.now() / 1000 + 604800);
-      const direction = { long: {} };
-      const strike = new BN(3000);
-      const positionHash = Buffer.alloc(32, 3);
 
       await program.methods
-        .tokenizePosition(protocol, notional, expiry, direction, strike, Array.from(positionHash))
+        .tokenizePosition({ fundingSwap: {} }, expiry)
         .accounts({
           owner: authority.publicKey,
           positionAccount: evtPositionAccount2.publicKey,

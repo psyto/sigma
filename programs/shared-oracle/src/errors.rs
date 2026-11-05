@@ -175,4 +175,10 @@ pub enum OracleError {
 
     #[msg("Fee rate exceeds 100%")]
     InvalidFeeRate,
+
+    #[msg("Position account does not belong to the protocol's program")]
+    InvalidPositionAccount,
+
+    #[msg("Position is not active")]
+    PositionNotOpen,
 }

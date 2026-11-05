@@ -438,26 +438,24 @@ export class OracleClient {
   // ============================================================================
 
   /**
-   * Tokenize a position for trading on secondary market
+   * Tokenize a position for trading on the secondary market. The wallet must
+   * own `originalPosition`, a live position account of `protocol`'s program;
+   * notional, direction and strike are read from it on-chain. `expiry` is
+   * used for VolSwap / FundingSwap positions (ExoticVault options store it).
    */
   async tokenizePosition(
-    originalProgram: PublicKey,
     originalPosition: PublicKey,
-    positionType: "varianceSwap" | "fundingSwap" | "exoticOption"
+    protocol: SigmaProtocolName,
+    expiry: BN = new BN(0)
   ): Promise<string> {
     const [positionToken] = findPositionTokenPDA(originalPosition);
-    const [secondaryMarket] = findSecondaryMarketPDA();
-
-    const typeArg = { [positionType]: {} };
 
     return this.program.methods
-      .tokenizePosition(typeArg)
+      .tokenizePosition({ [protocol]: {} }, expiry)
       .accounts({
         owner: this.provider.wallet.publicKey,
-        originalProgram,
-        originalPosition,
+        positionAccount: originalPosition,
         positionToken,
-        secondaryMarket,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
