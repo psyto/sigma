@@ -127,11 +127,13 @@ echo ""
 # ---------------------------------------------------------------------------
 # 1. Create shared-oracle SOL price feed
 # ---------------------------------------------------------------------------
-echo "[1/5] Creating shared-oracle SOL price feed..."
+echo "[1/5] Creating shared-oracle SOL price feed, variance tracker and SOL-PERP funding feed..."
 echo "  Program: $SHARED_ORACLE"
 echo "  Asset:   SOL ($SOL_MINT)"
 echo "  Interval: 60 seconds"
 echo "  Max samples: 100"
+echo "  Variance epoch: 7 days (used by the VolSwap pool in step 2)"
+echo "  Funding feed: SOL-PERP, 8 hours (used by the FundingSwap pool in step 3)"
 echo ""
 echo "  Command: anchor run init-oracle --provider.cluster devnet"
 echo "  (Calling initializePriceFeed with asset_symbol='SOL', sample_interval=60, max_samples=100)"
@@ -162,26 +164,75 @@ async function run() {
     program.programId
   );
 
+  const [varianceTracker] = PublicKey.findProgramAddressSync(
+    [Buffer.from('variance_tracker'), priceFeed.toBuffer()],
+    program.programId
+  );
+  const [fundingFeed] = PublicKey.findProgramAddressSync(
+    [Buffer.from('funding_feed'), Buffer.from('SOL-PERP')],
+    program.programId
+  );
+
   try {
-    const existing = await provider.connection.getAccountInfo(priceFeed);
-    if (existing) {
+    if (await provider.connection.getAccountInfo(priceFeed)) {
       console.log('  [OK] SOL price feed already exists');
-      return;
+    } else {
+      await program.methods
+        .initializePriceFeed('SOL', new anchor.BN(60), 100)
+        .accounts({
+          authority: provider.wallet.publicKey,
+          oracleConfig,
+          assetMint: SOL_MINT,
+          priceFeed,
+          sampleBuffer,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      console.log('  [OK] SOL price feed initialized');
     }
-    await program.methods
-      .initializePriceFeed('SOL', new anchor.BN(60), 100)
-      .accounts({
-        authority: provider.wallet.publicKey,
-        oracleConfig,
-        assetMint: SOL_MINT,
-        priceFeed,
-        sampleBuffer,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-    console.log('  [OK] SOL price feed initialized');
   } catch (e) {
-    console.log('  [ERR] ' + (e.message || e).toString().slice(0, 120));
+    console.log('  [ERR] price feed: ' + (e.message || e).toString().slice(0, 120));
+  }
+
+  // VolSwap's initialize_pool requires the variance tracker for this price feed
+  try {
+    if (await provider.connection.getAccountInfo(varianceTracker)) {
+      console.log('  [OK] SOL variance tracker already exists');
+    } else {
+      await program.methods
+        .initializeVarianceTracker(new anchor.BN(7 * 86400))
+        .accounts({
+          authority: provider.wallet.publicKey,
+          oracleConfig,
+          priceFeed,
+          varianceTracker,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      console.log('  [OK] SOL variance tracker initialized');
+    }
+  } catch (e) {
+    console.log('  [ERR] variance tracker: ' + (e.message || e).toString().slice(0, 120));
+  }
+
+  // FundingSwap's initialize_pool requires the funding feed for its market
+  try {
+    if (await provider.connection.getAccountInfo(fundingFeed)) {
+      console.log('  [OK] SOL-PERP funding feed already exists');
+    } else {
+      await program.methods
+        .initializeFundingFeed('SOL-PERP', new anchor.BN(28800))
+        .accounts({
+          authority: provider.wallet.publicKey,
+          oracleConfig,
+          fundingFeed,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      console.log('  [OK] SOL-PERP funding feed initialized');
+    }
+  } catch (e) {
+    console.log('  [ERR] funding feed: ' + (e.message || e).toString().slice(0, 120));
   }
 }
 run();
@@ -490,7 +541,7 @@ echo "============================================="
 echo "  Devnet state initialization complete!"
 echo ""
 echo "  Initialized:"
-echo "    - Shared Oracle: SOL price feed"
+echo "    - Shared Oracle: SOL price feed, SOL variance tracker, SOL-PERP funding feed"
 echo "    - VolSwap: SOL variance swap pool"
 echo "    - FundingSwap: SOL-PERP funding rate pool"
 echo "    - ExoticVault: SOL Asian & Barrier options vault"
