@@ -23,6 +23,14 @@ pub use state::{
 pub mod shared_oracle {
     use super::*;
 
+    /// Set the program admin once. Only the program's upgrade authority may call this.
+    pub fn initialize_oracle_config(ctx: Context<InitializeOracleConfig>, admin: Pubkey) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.admin = admin;
+        config.bump = ctx.bumps.config;
+        Ok(())
+    }
+
     // ============================================================================
     // Price Feed Instructions
     // ============================================================================
@@ -590,8 +598,14 @@ pub mod shared_oracle {
 #[derive(Accounts)]
 #[instruction(asset_symbol: String)]
 pub struct InitializePriceFeed<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == oracle_config.admin @ OracleError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [OracleConfig::SEED_PREFIX], bump = oracle_config.bump)]
+    pub oracle_config: Account<'info, OracleConfig>,
 
     /// CHECK: Asset mint for this price feed
     pub asset_mint: AccountInfo<'info>,
@@ -733,8 +747,14 @@ pub struct TransferPriceFeedAuthority<'info> {
 #[derive(Accounts)]
 #[instruction(market_symbol: String)]
 pub struct InitializeFundingFeed<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == oracle_config.admin @ OracleError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [OracleConfig::SEED_PREFIX], bump = oracle_config.bump)]
+    pub oracle_config: Account<'info, OracleConfig>,
 
     #[account(
         init,
@@ -828,8 +848,15 @@ pub struct UpdateAggregatedPrice<'info> {
 
 #[derive(Accounts)]
 pub struct InitializeVarianceTracker<'info> {
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = authority.key() == price_feed.authority
+            || authority.key() == oracle_config.admin @ OracleError::Unauthorized
+    )]
     pub authority: Signer<'info>,
+
+    #[account(seeds = [OracleConfig::SEED_PREFIX], bump = oracle_config.bump)]
+    pub oracle_config: Account<'info, OracleConfig>,
 
     pub price_feed: Account<'info, PriceFeed>,
 
@@ -1165,4 +1192,27 @@ pub struct PositionSold {
     pub position_token: Pubkey,
     pub buyer: Pubkey,
     pub price: u64,
+}
+
+#[derive(Accounts)]
+pub struct InitializeOracleConfig<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + OracleConfig::INIT_SPACE,
+        seeds = [OracleConfig::SEED_PREFIX],
+        bump
+    )]
+    pub config: Account<'info, OracleConfig>,
+
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ OracleError::Unauthorized)]
+    pub program: Program<'info, crate::program::SharedOracle>,
+
+    #[account(constraint = program_data.upgrade_authority_address == Some(payer.key()) @ OracleError::Unauthorized)]
+    pub program_data: Account<'info, ProgramData>,
+
+    pub system_program: Program<'info, System>,
 }

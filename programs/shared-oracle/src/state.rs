@@ -1182,3 +1182,16 @@ impl SecondaryMarket {
         self.listings.iter().filter(|l| l.is_active).count()
     }
 }
+
+/// Program-wide admin. Created once by the program's upgrade authority.
+#[account]
+#[derive(InitSpace)]
+pub struct OracleConfig {
+    /// Admin allowed to create canonical accounts
+    pub admin: Pubkey,
+    pub bump: u8,
+}
+
+impl OracleConfig {
+    pub const SEED_PREFIX: &'static [u8] = b"oracle_config";
+}
