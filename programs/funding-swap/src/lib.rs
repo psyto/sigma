@@ -124,7 +124,13 @@ pub struct InitializePool<'info> {
     pub collateral_mint: Account<'info, Mint>,
 
     /// Funding rate feed from shared oracle
-    /// CHECK: Validated via seeds in shared-oracle
+    /// CHECK: Pinned to the shared-oracle funding feed PDA for this market symbol
+    #[account(
+        seeds = [b"funding_feed", params.market_symbol.as_bytes()],
+        bump,
+        seeds::program = shared_oracle::ID,
+        constraint = funding_feed.owner == &shared_oracle::ID @ FundingSwapError::InvalidOracle
+    )]
     pub funding_feed: AccountInfo<'info>,
 
     #[account(
