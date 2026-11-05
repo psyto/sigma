@@ -29,3 +29,8 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+[test]
+# Load the programs upgradeable with the wallet as upgrade authority: the
+# config initializers (initialize_oracle_config / initialize_config) require it.
+upgradeable = true
